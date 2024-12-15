@@ -83,3 +83,26 @@ test "visit_test" {
     const out = visit(expression, allocator) catch unreachable;
     std.debug.print("{s}\n", .{out});
 }
+
+test "simple_test" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    
+    const expression = expr.Binary.new(
+        expr.Literal.new("1", allocator),
+        Token.new(TokenType.PLUS, "+", null, 1),
+        expr.Grouping.new(
+            expr.Binary.new(
+                expr.Literal.new("2", allocator),
+                Token.new(TokenType.PLUS, "+", null, 1),
+                expr.Literal.new("3", allocator),
+                allocator
+            ),
+            allocator
+        ),
+        allocator
+    );
+    const out = visit(expression, allocator) catch unreachable;
+    std.debug.print("{s}\n", .{out});
+}
