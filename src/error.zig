@@ -4,6 +4,7 @@ pub const Error = error{
     UsageError,
     SyntaxError,
     OutOfMemory,
+    ParseError,
     JSONError,
     RunError,
     ReadError,

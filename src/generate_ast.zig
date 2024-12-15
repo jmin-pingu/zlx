@@ -152,15 +152,29 @@ fn defineAST(
         // Add function: new()
         line = std.fmt.allocPrint(
             allocator, 
-            "{s}pub fn new({s}) {s} {s}\n", 
-            .{tab, fn_arg_fields, class.name, "{"}
+            "{s}pub fn new({s}, allocator: std.mem.Allocator) *const Expr {s}\n", 
+            .{tab, fn_arg_fields, "{"}
         ) catch return Error.AllocError;
         _ = fw.writeAll(line) catch return Error.WriteError;
 
         line = std.fmt.allocPrint(
             allocator, 
-            "{s}return {s}{s} {s} {s};\n{s}{s}\n", 
-            .{tab ** 2, class.name, "{", struct_arg_fields, "}", tab, "}"}
+            "{s}const new_expr = allocator.create(Expr) catch unreachable;\n", 
+            .{tab ** 2, }
+        ) catch return Error.AllocError;
+        _ = fw.writeAll(line) catch return Error.WriteError;
+
+        line = std.fmt.allocPrint(
+            allocator, 
+            "{s}new_expr.* = Expr.new(ExprType{s} .{s}={s}{s} {s} {s}{s});\n", 
+            .{tab ** 2, "{", class.name, class.name, "{", struct_arg_fields,"}", "}"}
+        ) catch return Error.AllocError;
+        _ = fw.writeAll(line) catch return Error.WriteError;
+        
+        line = std.fmt.allocPrint(
+            allocator, 
+            "{s}return new_expr;\n{s}{s}\n", 
+            .{tab ** 2, tab, "}"}
         ) catch return Error.AllocError;
         _ = fw.writeAll(line) catch return Error.WriteError;
         

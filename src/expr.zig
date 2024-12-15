@@ -15,30 +15,38 @@ pub const Binary = struct {
     left: *const Expr,
     operator: Token,
     right: *const Expr,
-    pub fn new(left: *const Expr, operator: Token, right: *const Expr) Binary {
-        return Binary{ .left=left, .operator=operator, .right=right, };
+    pub fn new(left: *const Expr, operator: Token, right: *const Expr, allocator: std.mem.Allocator) *const Expr {
+        const new_expr = allocator.create(Expr) catch unreachable;
+        new_expr.* = Expr.new(ExprType{ .Binary=Binary{ .left=left, .operator=operator, .right=right, }});
+        return new_expr;
     }
 };
 
 pub const Grouping = struct {
     expression: *const Expr,
-    pub fn new(expression: *const Expr) Grouping {
-        return Grouping{ .expression=expression, };
+    pub fn new(expression: *const Expr, allocator: std.mem.Allocator) *const Expr {
+        const new_expr = allocator.create(Expr) catch unreachable;
+        new_expr.* = Expr.new(ExprType{ .Grouping=Grouping{ .expression=expression, }});
+        return new_expr;
     }
 };
 
 pub const Literal = struct {
     value: ?[]const u8,
-    pub fn new(value: ?[]const u8) Literal {
-        return Literal{ .value=value, };
+    pub fn new(value: ?[]const u8, allocator: std.mem.Allocator) *const Expr {
+        const new_expr = allocator.create(Expr) catch unreachable;
+        new_expr.* = Expr.new(ExprType{ .Literal=Literal{ .value=value, }});
+        return new_expr;
     }
 };
 
 pub const Unary = struct {
     operator: Token,
     right: *const Expr,
-    pub fn new(operator: Token, right: *const Expr) Unary {
-        return Unary{ .operator=operator, .right=right, };
+    pub fn new(operator: Token, right: *const Expr, allocator: std.mem.Allocator) *const Expr {
+        const new_expr = allocator.create(Expr) catch unreachable;
+        new_expr.* = Expr.new(ExprType{ .Unary=Unary{ .operator=operator, .right=right, }});
+        return new_expr;
     }
 };
 
