@@ -1,0 +1,32 @@
+{
+	"classes": [
+		{
+			"name": "Binary",
+			"fields": [
+				{"dtype": "Expr", "name": "left"},
+				{"dtype": "Token", "name": "operator"},
+				{"dtype": "Expr", "name": "right"}
+			]
+		},
+		{
+			"name": "Grouping",
+			"fields": [
+				{"dtype": "Expr", "name": "expression"}
+			]
+		},
+		{
+			"name": "Literal",
+			"fields": [
+				{"dtype": "?[]const u8", "name": "value"}
+			]
+		},
+		{
+			"name": "Unary",
+			"fields": [
+				{"dtype": "Token", "name": "operator"},
+				{"dtype": "Expr", "name": "right"}
+			]
+		}
+	]
+}
+
