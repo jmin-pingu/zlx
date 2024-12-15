@@ -1,6 +1,10 @@
 pub const std = @import("std");
 const ArrayList = std.ArrayList;
 const Error = @import("error.zig").Error;
+// TODO: need to clean up this code. 
+// 1) there must be a cleaner way to AllocPrint then Write
+// 2) the "subclass" definition doesn't cleanly translate to zig, so I need to make sure my logic still makes sense when use Expr { dtype: ExprType}
+// 3) I may need to have pointers to Expr instead of Expr in each ExprType's field
 
 pub fn main() Error!void {
     // Define the allocator
@@ -58,27 +62,34 @@ fn defineAST(
 
     var fw = file.writer();
     const init_source = 
-        \\pub const std = @import("std")
+        \\pub const std = @import("std");
         \\const Token = @import("token/token.zig").Token;
         \\const TokenType = @import("token/token_type.zig").TokenType;
     ;
     _ = fw.writeAll(init_source) catch return Error.WriteError;
 
     // Parse expr types
+    var expr_types: []const u8 = "";
+    var expr_types_union: []const u8 = "";
     var line: []const u8 = "";
     for (parsed.value.classes) |class| {
-        if (std.mem.eql(u8, line, "")) {
-            line = std.fmt.allocPrint(allocator, "{s}", .{class.name}) catch return Error.AllocError;
+        if (std.mem.eql(u8, expr_types, "")) {
+            expr_types = std.fmt.allocPrint(allocator, "{s}", .{class.name}) catch return Error.AllocError;
+            expr_types_union = std.fmt.allocPrint(allocator, "{s}: {s}", .{class.name, class.name}) catch return Error.AllocError;
         } else {
-            line = std.fmt.allocPrint(allocator, "{s}, {s}", .{line, class.name}) catch return Error.AllocError;
+            expr_types = std.fmt.allocPrint(allocator, "{s}, {s}", .{expr_types, class.name}) catch return Error.AllocError;
+            expr_types_union = std.fmt.allocPrint(allocator, "{s}, {s}: {s}", .{expr_types_union, class.name, class.name}) catch return Error.AllocError;
         }
     }
-    line = std.fmt.allocPrint(allocator, "\nconst ExprType = union {s}{s}{s};\n\n", .{"{", line, "}"}) catch return Error.AllocError;
+
+    line = std.fmt.allocPrint(allocator, "\npub const ExprTypeEnum = enum {s}{s}{s};\n", .{"{", expr_types, "}"}) catch return Error.AllocError;
+    _ = fw.writeAll(line) catch return Error.WriteError;
+    line = std.fmt.allocPrint(allocator, "pub const ExprType = union(ExprTypeEnum) {s}{s}{s};\n\n", .{"{", expr_types_union, "}"}) catch return Error.AllocError;
     _ = fw.writeAll(line) catch return Error.WriteError;
 
     const expr_source = 
         \\pub const Expr = struct {
-        \\    dtype: ExprType
+        \\    dtype: ExprType,
         \\    pub fn new(dtype: ExprType) Expr {
         \\        return Expr{ .dtype = dtype };
         \\    }
@@ -110,19 +121,35 @@ fn defineAST(
 
             // Prepare the line for fn args
             if (std.mem.eql(u8, fn_arg_fields, "")) {
-                fn_arg_fields = std.fmt.allocPrint(allocator, "{s}: {s}", .{field.name, field.dtype}) catch return Error.AllocError;
+                fn_arg_fields = std.fmt.allocPrint(
+                    allocator, 
+                    "{s}: {s}", 
+                    .{field.name, field.dtype}
+                ) catch return Error.AllocError;
             } else {
-                fn_arg_fields = std.fmt.allocPrint(allocator, "{s}, {s}: {s}", .{fn_arg_fields, field.name, field.dtype}) catch return Error.AllocError;
+                fn_arg_fields = std.fmt.allocPrint(
+                    allocator, 
+                    "{s}, {s}: {s}", 
+                    .{fn_arg_fields, field.name, field.dtype}
+                ) catch return Error.AllocError;
             }
 
             // Prepare the line for struct init args
             if (std.mem.eql(u8, struct_arg_fields, "")) {
-                struct_arg_fields = std.fmt.allocPrint(allocator, ".{s}={s}", .{field.name, field.name}) catch return Error.AllocError;
+                struct_arg_fields = std.fmt.allocPrint(
+                    allocator, 
+                    ".{s}={s},", 
+                    .{field.name, field.name}
+                ) catch return Error.AllocError;
             } else {
-                struct_arg_fields = std.fmt.allocPrint(allocator, "{s}, .{s}={s}", .{struct_arg_fields, field.name, field.name}) catch return Error.AllocError;
+                struct_arg_fields = std.fmt.allocPrint(
+                    allocator, 
+                    "{s} .{s}={s},", 
+                    .{struct_arg_fields, field.name, field.name}
+                ) catch return Error.AllocError;
             }
         }
-        // Define the constructor
+        // Add function: new()
         line = std.fmt.allocPrint(
             allocator, 
             "{s}pub fn new({s}) {s} {s}\n", 
@@ -138,7 +165,7 @@ fn defineAST(
         _ = fw.writeAll(line) catch return Error.WriteError;
         
         // Close the struct
-        _ = fw.writeAll("}\n\n") catch return Error.WriteError;
+        _ = fw.writeAll("};\n\n") catch return Error.WriteError;
     }
 }
 

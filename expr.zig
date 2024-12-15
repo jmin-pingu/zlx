@@ -1,8 +1,8 @@
 pub const std = @import("std");
 const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
-pub const ExprTypeEnum = enum {Binary, Grouping, Literal, Unary};
-pub const ExprType = union(ExprTypeEnum) {Binary: Binary, Grouping: Grouping, Literal: Literal, Unary: Unary};
+const ExprTypeEnum = enum {Binary, Grouping, Literal, Unary};
+const ExprType = union(ExprTypeEnum) {binary: Binary, grouping: Grouping, literal: Literal, unary: Unary};
 
 pub const Expr = struct {
     dtype: ExprType,
@@ -12,17 +12,17 @@ pub const Expr = struct {
 };
 
 pub const Binary = struct {
-    left: *const Expr,
+    left: Expr,
     operator: Token,
-    right: *const Expr,
-    pub fn new(left: *const Expr, operator: Token, right: *const Expr) Binary {
+    right: Expr,
+    pub fn new(left: Expr, operator: Token, right: Expr) Binary {
         return Binary{ .left=left, .operator=operator, .right=right, };
     }
 };
 
 pub const Grouping = struct {
-    expression: *const Expr,
-    pub fn new(expression: *const Expr) Grouping {
+    expression: Expr,
+    pub fn new(expression: Expr) Grouping {
         return Grouping{ .expression=expression, };
     }
 };
@@ -36,8 +36,8 @@ pub const Literal = struct {
 
 pub const Unary = struct {
     operator: Token,
-    right: *const Expr,
-    pub fn new(operator: Token, right: *const Expr) Unary {
+    right: Expr,
+    pub fn new(operator: Token, right: Expr) Unary {
         return Unary{ .operator=operator, .right=right, };
     }
 };

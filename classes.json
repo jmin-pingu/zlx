@@ -3,15 +3,15 @@
 		{
 			"name": "Binary",
 			"fields": [
-				{"dtype": "Expr", "name": "left"},
+				{"dtype": "*const Expr", "name": "left"},
 				{"dtype": "Token", "name": "operator"},
-				{"dtype": "Expr", "name": "right"}
+				{"dtype": "*const Expr", "name": "right"}
 			]
 		},
 		{
 			"name": "Grouping",
 			"fields": [
-				{"dtype": "Expr", "name": "expression"}
+				{"dtype": "*const Expr", "name": "expression"}
 			]
 		},
 		{
@@ -24,7 +24,7 @@
 			"name": "Unary",
 			"fields": [
 				{"dtype": "Token", "name": "operator"},
-				{"dtype": "Expr", "name": "right"}
+				{"dtype": "*const Expr", "name": "right"}
 			]
 		}
 	]
