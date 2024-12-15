@@ -2,8 +2,9 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 // import files into namespace
 const lox = @import("lox.zig");
+const Error = @import("error.zig").Error;
 
-pub fn main() lox.Err!void {
+pub fn main() Error!void {
     try lox.main();
 }
 

@@ -1,19 +1,12 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Scanner = @import("scanner.zig").Scanner;
+const Error = @import("error.zig").Error;
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
-pub const Err = error{
-    UsageErr,
-    SyntaxErr,
-    OutOfMemory,
-    RunErr,
-    ReadErr,
-    FileErr,
-    PrintErr,
-    GenericErr,
-};
 
-pub fn main() Err!void {
+
+pub fn main() Error!void {
     // Define the allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
@@ -31,61 +24,50 @@ pub fn main() Err!void {
     // Ensure correct usage
     if (argv.items.len > 2) {
         std.debug.print("Usage Error: zlox [program_path]\n", .{});
-        return Err.UsageErr;
+        return Error.UsageError;
     } else if (argv.items.len == 1) {
         std.debug.print("Opening interpreter: {s}\n", .{argv.items});
-        try run_prompt();
+        try run_prompt(allocator);
 
     } else {
         std.debug.print("Running program: {s}\n", .{argv.items[1]});
-        try run_file(argv.items[1]);
-
+        try run_file(argv.items[1], allocator);
     }
 }
 
-pub fn run_prompt() Err!void { 
+pub fn run_prompt(allocator: std.mem.Allocator) Error!void { 
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
-    stdout.writeAll("zlox\n") catch return Err.PrintErr;
+    stdout.writeAll("zlox\n") catch return Error.PrintError;
     var buffer: [512]u8 = undefined;
     @memset(buffer[0..], 0);
 
-    stdout.print("> ", .{}) catch return Err.PrintErr;
-    while (stdin.readUntilDelimiterOrEof(buffer[0..], '\n') catch return Err.ReadErr) |line| {
-        // TODO: handle the error and continue. Currently, I'm just ignoring the problem. In general, the pattern will be whenever an error returns, I throw Err
-        run(line) catch {};
+    stdout.print("> ", .{}) catch return Error.PrintError;
+    while (stdin.readUntilDelimiterOrEof(buffer[0..], '\n') catch return Error.ReadError) |line| {
+        // TODO: handle the error and continue. 
+        // Currently, I'm just ignoring the problem. In general, the pattern will be whenever an error returns, I throw Error
+        run(line, allocator) catch {};
         @memset(buffer[0..], 0);
-        stdout.print("> ", .{}) catch return Err.PrintErr;
+        stdout.print("> ", .{}) catch return Error.PrintError;
     }
 }
 
-pub fn run_file(path: []const u8) Err!void { 
-    var file = std.fs.cwd().openFile(path, .{}) catch return Err.FileErr;
-    var buf_reader = std.io.bufferedReader(file.reader());
-    var in_stream = buf_reader.reader();
-    var buf: [1024]u8 = undefined;
+pub fn run_file(path: []const u8, allocator: std.mem.Allocator) Error!void { 
+    var file = std.fs.cwd().openFile(path, .{}) catch return Error.FileError;
+    const file_size = (file.stat() catch return Error.FileError).size;
+    const buffer = allocator.alloc(u8, file_size) catch return Error.AllocError;
     defer file.close();
-    while (in_stream.readUntilDelimiterOrEof(&buf, '\n') catch return Err.ReadErr) |line| {
-       run(line) catch return Err.RunErr;
-       // TODO: os.exit() upon error
+    file.reader().readNoEof(buffer) catch return Error.ReadError;
+    run(buffer, allocator) catch return Error.RunError;
+}
+
+pub fn run(source: []const u8, allocator: std.mem.Allocator) !void { 
+    var scanner = Scanner.new(source, allocator);
+    const tokens = try scanner.scanTokens();
+    for (tokens.items) |token| {
+        // need to move the token to a new mutable variable, mut_token
+        var mut_token = token;
+        std.debug.print("{s}", .{mut_token.to_string(allocator)});
     }
-}
-
-pub fn run(line: []const u8) !void { 
-    // For now, only tokenize by spaces
-    var it = std.mem.tokenizeAny(u8, line, " ");
-    while (it.next()) |token| {
-        std.debug.print("{s}\n", .{token});
-    }
-}
-
-fn err(line_number: usize, message: []const u8, allocator: std.mem.Allocator) Err {
-    report(line_number, "", message, allocator);
-}
-
-fn report(line_number: usize, where: []const u8, message: []const u8, allocator: std.mem.Allocator) Err {
-    const stderr = std.io.getStdErr().writer();
-    try stderr.writeAll(std.fmt.allocPrint(allocator, "[line: {d}] Error {s}: {s}\n", .{line_number, where, message}));
-    return Err.GenericErr;
 }
 

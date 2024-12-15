@@ -16,3 +16,4 @@ pub const TokenType = enum {
 
     EOF
 };
+
