@@ -1,7 +1,10 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Scanner = @import("scanner.zig").Scanner;
+const Parser = @import("parser.zig").Parser;
 const Error = @import("error.zig").Error;
+const expr = @import("expr.zig");
+const visitor = @import("visitor.zig");
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
 
@@ -61,13 +64,18 @@ pub fn run_file(path: []const u8, allocator: std.mem.Allocator) Error!void {
     run(buffer, allocator) catch return Error.RunError;
 }
 
-pub fn run(source: []const u8, allocator: std.mem.Allocator) !void { 
+pub fn run(source: []const u8, allocator: std.mem.Allocator) Error!void { 
     var scanner = Scanner.new(source, allocator);
     const tokens = try scanner.scanTokens();
-    for (tokens.items) |token| {
-        // need to move the token to a new mutable variable, mut_token
-        var mut_token = token;
-        std.debug.print("{s}", .{mut_token.to_string(allocator)});
-    }
+    var parser = Parser.new(tokens, allocator);
+    const e: *const expr.Expr = parser.parse() catch return Error.ParseError;
+
+    const out = visitor.visit(e, allocator) catch |err| return err;
+    std.debug.print("{s}\n", .{out});
+    // for (tokens.items) |token| {
+    //     // need to move the token to a new mutable variable, mut_token
+    //     var mut_token = token;
+    //     std.debug.print("{s}", .{mut_token.to_string(allocator)});
+    // }
 }
 
