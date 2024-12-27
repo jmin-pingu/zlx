@@ -1,6 +1,7 @@
 const std = @import("std");
 const Error = @import("error.zig").Error;
 const Token = @import("token/token.zig").Token;
+const LiteralValue = @import("token/token.zig").LiteralValue;
 const TokenType = @import("token/token_type.zig").TokenType;
 const expr = @import("expr.zig");
 
@@ -88,9 +89,9 @@ pub const Parser = struct {
         var literal_match = [_]TokenType{TokenType.NUMBER, TokenType.STRING};
         var paren_match = [_]TokenType{TokenType.LEFT_PAREN};
 
-        if (self.match(&false_match)) return expr.Literal.new("false", self.allocator);
-        if (self.match(&true_match)) return expr.Literal.new("true", self.allocator);
-        if (self.match(&nil_match)) return expr.Literal.new("null", self.allocator);
+        if (self.match(&false_match)) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
+        if (self.match(&true_match)) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
+        if (self.match(&nil_match)) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
 
         if (self.match(&literal_match)) return expr.Literal.new(self.previous().literal, self.allocator);
         

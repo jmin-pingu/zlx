@@ -19,10 +19,31 @@ pub fn visit(e: *const expr.Expr, allocator: std.mem.Allocator) Error![]const u8
         },
         .Literal => |literal_expr| {
             // NOTE: literal is the base case
-            if (literal_expr.value) |val| {
-                return val; 
-            } else {
-                return Error.ParseError;
+            switch (literal_expr.value) {
+                .Number => |value| {
+                    return std.fmt.allocPrint(
+                        allocator, 
+                        "{d}", 
+                        .{value}
+                    ) catch return Error.AllocError;
+                },
+                .String, .Identifier => |value| {
+                    return std.fmt.allocPrint(
+                        allocator, 
+                        "{s}", 
+                        .{value}
+                    ) catch return Error.AllocError;
+                },
+                .Nil => {
+                    return "null";
+                },
+                .Bool => |value| {
+                    return std.fmt.allocPrint(
+                        allocator, 
+                        "{any}", 
+                        .{value}
+                    ) catch return Error.AllocError;
+                },
             }
         },
         .Unary => |unary_expr| {

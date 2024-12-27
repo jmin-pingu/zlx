@@ -1,5 +1,6 @@
 pub const std = @import("std");
 const Token = @import("token/token.zig").Token;
+const LiteralValue = @import("token/token.zig").LiteralValue;
 const TokenType = @import("token/token_type.zig").TokenType;
 pub const ExprTypeEnum = enum {Binary, Grouping, Literal, Unary};
 pub const ExprType = union(ExprTypeEnum) {Binary: Binary, Grouping: Grouping, Literal: Literal, Unary: Unary};
@@ -32,8 +33,9 @@ pub const Grouping = struct {
 };
 
 pub const Literal = struct {
-    value: ?[]const u8,
-    pub fn new(value: ?[]const u8, allocator: std.mem.Allocator) *const Expr {
+    // Probably change a line here
+    value: LiteralValue,
+    pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *const Expr {
         const new_expr = allocator.create(Expr) catch unreachable;
         new_expr.* = Expr.new(ExprType{ .Literal=Literal{ .value=value, }});
         return new_expr;

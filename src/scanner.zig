@@ -123,7 +123,7 @@ pub const Scanner = struct {
         if (keywords.get(text)) |ttype| {
             self.addToken(ttype, null);
         } else {
-            self.addToken(TokenType.IDENTIFIER, null);
+            self.addToken(TokenType.IDENTIFIER, text);
         }
     }
 
