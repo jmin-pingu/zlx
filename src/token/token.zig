@@ -2,13 +2,13 @@ const std = @import("std");
 const token_type = @import("token_type.zig");
 
 const TokenType = token_type.TokenType;
-// TODO: incorporate Literal union 
-// const literal = enum{identifier, string, number};
-// const Literal = union{
-//     identifier: []const u8,
-//     string: []const u8,
-//     number: f64,
-// };
+const LiteralTag = enum{Identifier, String, Number, Nil};
+const LiteralValue = union(LiteralTag){
+    Identifier: []const u8,
+    String: []const u8,
+    Number: f64,
+    Nil: null,
+};
 
 pub const Token = struct {
     ttype: token_type.TokenType,

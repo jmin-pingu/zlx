@@ -5,7 +5,6 @@ const TokenType = @import("token/token_type.zig").TokenType;
 const Error = @import("error.zig").Error;
 
 pub fn visit(e: *const expr.Expr, allocator: std.mem.Allocator) Error![]const u8 { 
-
     switch (e.dtype) {
         .Binary => |binary_expr| {
             var expressions = allocator.alloc(*const expr.Expr, 2) catch return Error.AllocError;
