@@ -1,25 +1,17 @@
 const std = @import("std");
-const token_type = @import("token_type.zig");
-
-const TokenType = token_type.TokenType;
+const TokenType = @import("token_type.zig").TokenType;
+const Literal = @import("literal.zig").Literal;
+const Tag = @import("literal.zig").Tag;
 
 // union for literal values
-const LiteralTag = enum{Identifier, String, Number, Nil, Bool};
-pub const LiteralValue = union(LiteralTag){
-    Identifier: []const u8,
-    String: []const u8,
-    Number: f64,
-    Nil: ?void,
-    Bool: bool,
-};
-
+// NOTE: DOP: we are fundamentally wasting space with literal since more often than not, it will be Nil
 pub const Token = struct {
-    ttype: token_type.TokenType,
+    ttype: TokenType,
     lexeme: []const u8, 
-    literal: LiteralValue, 
+    literal: Literal, 
     line: u64, 
 
-    pub fn new(ttype: token_type.TokenType, lexeme: []const u8, literal: ?[]const u8, line: u64) Token {
+    pub fn new(ttype: TokenType, lexeme: []const u8, literal: ?[]const u8, line: u64) Token {
         // Depending on token_type, add a corresponding literal
         switch (ttype) {
             .IDENTIFIER => {
@@ -27,7 +19,7 @@ pub const Token = struct {
                     .ttype = ttype,
                     .lexeme = lexeme,
                     // TODO: double check optional unwrapping here
-                    .literal = LiteralValue{.Identifier=literal.?},
+                    .literal = Literal{.Identifier=literal.?},
                     .line = line,
                 };
             }, 
@@ -35,7 +27,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = LiteralValue{.String=literal.?},
+                    .literal = Literal{.String=literal.?},
                     .line = line,
                 };
             }, 
@@ -43,7 +35,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = LiteralValue{.Number=std.fmt.parseFloat(f64, literal.?) catch unreachable},
+                    .literal = Literal{.Number=std.fmt.parseFloat(f64, literal.?) catch unreachable},
                     .line = line,
                 };
             },
@@ -51,7 +43,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = LiteralValue{.Bool=false},
+                    .literal = Literal{.Bool=false},
                     .line = line,
                 };
             },
@@ -59,7 +51,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = LiteralValue{.Bool=true},
+                    .literal = Literal{.Bool=true},
                     .line = line,
                 };
             },
@@ -67,7 +59,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = LiteralValue{.Nil=null},
+                    .literal = Literal{.Nil=null},
                     .line = line,
                 };
             }
@@ -78,3 +70,13 @@ pub const Token = struct {
         return std.fmt.allocPrint(allocator, "{any} {s} {any}\n", .{self.ttype, self.lexeme, self.literal}) catch unreachable;
     }
 };
+
+
+test "literal_test" {
+    const x0 = Literal{ .Identifier = "bar" };
+    // const x1 = Literal{ .String = "foo" };
+    // const x2 = Literal{ .Number = 10 };
+    // const x3 = Literal{ .Nil = null };
+    // const x4 = Literal{ .Bool = true };
+    std.debug.print("{}\n", .{x0.check_tag(Tag.Identifier)});
+}
