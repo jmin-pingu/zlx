@@ -9,9 +9,9 @@ const LiteralTag = @import("literal.zig").Tag;
 const Error = @import("error.zig").Error;
 const err = @import("error.zig").err;
 
-pub fn interpret(e: *const expr.Expr, allocator: std.mem.Allocator) Error!LiteralValue { 
-    const value = try evaluate(e, allocator) catch |Error.RuntimeError| {};
-    std.debug.print("{s}\n", .{try value.to_string(allocator) catch unreachable});
+pub fn interpret(e: *const expr.Expr, allocator: std.mem.Allocator) Error!void { 
+    const value = evaluate(e, allocator) catch return Error.RuntimeError;
+    std.debug.print("{s}\n", .{try value.to_string(allocator)});
 }
 
 fn evaluate(ex: *const expr.Expr, allocator: std.mem.Allocator) Error!LiteralValue { 
@@ -20,17 +20,17 @@ fn evaluate(ex: *const expr.Expr, allocator: std.mem.Allocator) Error!LiteralVal
         .Binary => |e| {
             const left = evaluate(e.left, allocator) catch return Error.RuntimeError;
             const right = evaluate(e.right, allocator) catch return Error.RuntimeError;
-            return literal.evaluate_binary(left, right, e.operator);
+            return left.evaluate_binary(right, e.operator.ttype, allocator);
         },
         .Grouping => |e| {
-            return evaluate(e.expression);
+            return evaluate(e.expression, allocator);
         },
         .Literal => |e| {
-            return e;
+            return e.value;
         },
         .Unary => |e| {
             const right = evaluate(e.right, allocator) catch return Error.RuntimeError;
-            return literal.evaluate_unary(right, e.operator);
+            return right.evaluate_unary(e.operator.ttype);
         },
     }
 }

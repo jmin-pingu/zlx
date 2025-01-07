@@ -21,6 +21,6 @@ pub fn error_msg(line_number: usize, message: []const u8, err: Error, allocator:
 }
 
 fn report(line_number: usize, where: []const u8, message: []const u8, err: Error, allocator: std.mem.Allocator) Error {
-    std.debug.print("{s}", .{std.fmt.allocPrint(allocator, "[line: {d}] Error{s}: {s}\n", .{line_number, where, message}) catch return Error.AllocError});
+    std.debug.print("{s}", .{std.fmt.allocPrint(allocator, "[line: {d}] Error{s}, {!}: {s}\n", .{line_number, where, err, message}) catch return Error.AllocError});
     return err;
 }

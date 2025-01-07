@@ -152,7 +152,7 @@ pub const Scanner = struct {
 
         if (self.reachedEnd()) {
             const message = "failure to terminate string";
-            return err_lib.error_msg(self.line, message, self.allocator);
+            return err_lib.error_msg(self.line, message, Error.SyntaxError, self.allocator);
         }
 
         _ = self.advance();

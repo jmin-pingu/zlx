@@ -72,8 +72,8 @@ fn run(source: []const u8, allocator: std.mem.Allocator) Error!void {
     const e: *const expr.Expr = parser.parse() catch return Error.ParseError;
 
     // const out = visitor.visit(e, allocator) catch |err| return err;
-    const out = interpreter.interpret(e, allocator) catch |err| return err;
-    std.debug.print("{s}\n", .{out});
+    _ = interpreter.interpret(e, allocator) catch |err| return err;
+
     // for (tokens.items) |token| {
     //     // need to move the token to a new mutable variable, mut_token
     //     var mut_token = token;

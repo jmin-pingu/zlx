@@ -41,8 +41,8 @@ pub const Literal = union(Tag){
         } else if (self.same_tags(other, Tag.String)) {
             return std.mem.eql(u8, self.String, other.String);
         } else if (self.same_tags(other, Tag.Number) or self.check_tag(Tag.Bool) or other.check_tag(Tag.Bool)) {
-            const a = if (self.check_tag(Tag.Bool)) @intFromBool(self) else self.Number;
-            const b = if (other.check_tag(Tag.Bool)) @intFromBool(other) else other.Number;
+            const a: f64 = if (self.check_tag(Tag.Bool)) @floatFromInt(@intFromBool(self.Bool)) else self.Number;
+            const b: f64 = if (other.check_tag(Tag.Bool)) @floatFromInt(@intFromBool(other.Bool)) else other.Number;
             return a == b;
         } else {
             return false;
@@ -94,7 +94,7 @@ pub const Literal = union(Tag){
         }
     }
 
-    pub fn evaluate_binary(self: Literal, other: Literal, ttype: TokenType) Error!Literal {
+    pub fn evaluate_binary(self: Literal, other: Literal, ttype: TokenType, allocator: std.mem.Allocator) Error!Literal {
         switch (ttype) {
             TokenType.MINUS => {
                 if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
@@ -111,28 +111,34 @@ pub const Literal = union(Tag){
             },
             TokenType.PLUS => {
                 // Check if both string OR both numeric
-                if (!self.same_tags(other, Tag.String) or !self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.String) and !self.same_tags(other, Tag.Number)) return Error.RuntimeError;
                 if (self.check_tag(Tag.String)) {
-                    return Literal{ .String = self.String ++ other.String};
+                    const new_string = std.fmt.allocPrint(
+                        allocator, 
+                        "{s}{s}", 
+                        .{self.String, other.String}
+                    ) catch return Error.AllocError;
+                    return Literal{ .String = new_string};
+
                 } else {
                     return Literal{ .Number = self.Number + other.Number};
                 }
             },
             TokenType.GREATER => {
                 if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
-                return Literal{ .Number = self.Number > other.Number};
+                return Literal{ .Bool = self.Number > other.Number};
             },
             TokenType.GREATER_EQUAL => {
                 if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
-                return Literal{ .Number = self.Number >= other.Number};
+                return Literal{ .Bool = self.Number >= other.Number};
             },
             TokenType.LESS => {
                 if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
-                return Literal{ .Number = self.Number < other.Number};
+                return Literal{ .Bool = self.Number < other.Number};
             },
             TokenType.LESS_EQUAL => {
                 if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
-                return Literal{ .Number = self.Number <= other.Number};
+                return Literal{ .Bool = self.Number <= other.Number};
             },
             TokenType.BANG_EQUAL => {
                 return Literal{ .Bool = !self.equals(other)};
