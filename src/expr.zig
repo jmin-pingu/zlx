@@ -1,9 +1,14 @@
 pub const std = @import("std");
 const Token = @import("token/token.zig").Token;
-const LiteralValue = @import("token/token.zig").LiteralValue;
-const TokenType = @import("token/token_type.zig").TokenType;
-pub const ExprTypeEnum = enum {Binary, Grouping, Literal, Unary};
-pub const ExprType = union(ExprTypeEnum) {Binary: Binary, Grouping: Grouping, Literal: Literal, Unary: Unary};
+const LiteralValue = @import("token/literal.zig").LiteralValue;
+
+pub const ExprTag = enum {Binary, Grouping, Literal, Unary};
+pub const ExprType = union(ExprTag) {
+    Binary: Binary, 
+    Grouping: Grouping, 
+    Literal: Literal, 
+    Unary: Unary
+};
 
 pub const Expr = struct {
     dtype: ExprType,
@@ -18,7 +23,11 @@ pub const Binary = struct {
     right: *const Expr,
     pub fn new(left: *const Expr, operator: Token, right: *const Expr, allocator: std.mem.Allocator) *const Expr {
         const new_expr = allocator.create(Expr) catch unreachable;
-        new_expr.* = Expr.new(ExprType{ .Binary=Binary{ .left=left, .operator=operator, .right=right, }});
+        new_expr.* = Expr.new(ExprType{ 
+            .Binary=Binary{ 
+                .left=left, .operator=operator, .right=right, 
+            }
+        });
         return new_expr;
     }
 };
@@ -33,7 +42,7 @@ pub const Grouping = struct {
 };
 
 pub const Literal = struct {
-    // Probably change a line here
+    // NOTE: I really don't like having LiteralValue in token.zig 
     value: LiteralValue,
     pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *const Expr {
         const new_expr = allocator.create(Expr) catch unreachable;
