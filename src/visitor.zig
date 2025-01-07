@@ -1,9 +1,13 @@
 const std = @import("std");
 const expr = @import("expr.zig");
-const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
+const Token = @import("token.zig").Token;
+const TokenType = @import("token_type.zig").TokenType;
 const Error = @import("error.zig").Error;
 
+// In the book Crafting Interpreters, they use the Visitor pattern
+// However, that design pattern hinges on polymorphism and overriding
+// methods. For a low-level language like Zig, this doesn't really make sense
+// and it's easier just to implement a function that does the desired action.
 pub fn visit(e: *const expr.Expr, allocator: std.mem.Allocator) Error![]const u8 { 
     switch (e.dtype) {
         .Binary => |binary_expr| {

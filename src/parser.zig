@@ -1,8 +1,8 @@
 const std = @import("std");
 const Error = @import("error.zig").Error;
-const Token = @import("token/token.zig").Token;
-const LiteralValue = @import("token/token.zig").LiteralValue;
-const TokenType = @import("token/token_type.zig").TokenType;
+const Token = @import("token.zig").Token;
+const LiteralValue = @import("literal.zig").Literal;
+const TokenType = @import("token_type.zig").TokenType;
 const expr = @import("expr.zig");
 
 const ArrayList = std.ArrayList;

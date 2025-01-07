@@ -5,6 +5,7 @@ const Parser = @import("parser.zig").Parser;
 const Error = @import("error.zig").Error;
 const expr = @import("expr.zig");
 const visitor = @import("visitor.zig");
+const interpreter = @import("evaluator.zig");
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
 
@@ -38,7 +39,7 @@ pub fn main() Error!void {
     }
 }
 
-pub fn run_prompt(allocator: std.mem.Allocator) Error!void { 
+fn run_prompt(allocator: std.mem.Allocator) Error!void { 
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
     stdout.writeAll("zlox\n") catch return Error.PrintError;
@@ -55,22 +56,23 @@ pub fn run_prompt(allocator: std.mem.Allocator) Error!void {
     }
 }
 
-pub fn run_file(path: []const u8, allocator: std.mem.Allocator) Error!void { 
+fn run_file(path: []const u8, allocator: std.mem.Allocator) Error!void { 
     var file = std.fs.cwd().openFile(path, .{}) catch return Error.FileError;
     const file_size = (file.stat() catch return Error.FileError).size;
     const buffer = allocator.alloc(u8, file_size) catch return Error.AllocError;
     defer file.close();
     file.reader().readNoEof(buffer) catch return Error.ReadError;
-    run(buffer, allocator) catch return Error.RunError;
+    run(buffer, allocator) catch return Error.RuntimeError;
 }
 
-pub fn run(source: []const u8, allocator: std.mem.Allocator) Error!void { 
+fn run(source: []const u8, allocator: std.mem.Allocator) Error!void { 
     var scanner = Scanner.new(source, allocator);
     const tokens = try scanner.scanTokens();
     var parser = Parser.new(tokens, allocator);
     const e: *const expr.Expr = parser.parse() catch return Error.ParseError;
 
-    const out = visitor.visit(e, allocator) catch |err| return err;
+    // const out = visitor.visit(e, allocator) catch |err| return err;
+    const out = interpreter.interpret(e, allocator) catch |err| return err;
     std.debug.print("{s}\n", .{out});
     // for (tokens.items) |token| {
     //     // need to move the token to a new mutable variable, mut_token

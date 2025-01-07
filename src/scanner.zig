@@ -2,8 +2,8 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const StaticStringMap = std.StaticStringMap;
 // project imports
-const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
+const Token = @import("token.zig").Token;
+const TokenType = @import("token_type.zig").TokenType;
 const err_lib = @import("error.zig");
 const Error = err_lib.Error;
 
@@ -110,7 +110,7 @@ pub const Scanner = struct {
                     self.identifier();
                 } else {
                     const message = "syntax error";
-                    return err_lib.error_msg(self.line, message, self.allocator);
+                    return err_lib.error_msg(self.line, message, Error.SyntaxError, self.allocator);
                 }
             }
         }

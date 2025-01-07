@@ -1,6 +1,6 @@
 pub const std = @import("std");
-const Token = @import("token/token.zig").Token;
-const LiteralValue = @import("token/literal.zig").LiteralValue;
+const Token = @import("token.zig").Token;
+const LiteralValue = @import("literal.zig").Literal;
 
 pub const ExprTag = enum {Binary, Grouping, Literal, Unary};
 pub const ExprType = union(ExprTag) {

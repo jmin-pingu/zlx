@@ -1,11 +1,11 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 // import files into namespace
-const lox = @import("lox.zig");
+const zlx = @import("zlx.zig");
 const Error = @import("error.zig").Error;
 
 pub fn main() Error!void {
-    try lox.main();
+    try zlx.main();
 }
 
 test "test" {
