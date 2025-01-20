@@ -4,7 +4,7 @@ const Scanner = @import("scanner.zig").Scanner;
 const Parser = @import("parser.zig").Parser;
 const Error = @import("error.zig").Error;
 const expr = @import("expr.zig");
-const visitor = @import("visitor.zig");
+const AstPrinter = @import("printer.zig").AstPrinter;
 const interpreter = @import("evaluator.zig");
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
@@ -71,8 +71,11 @@ fn run(source: []const u8, allocator: std.mem.Allocator) Error!void {
     var parser = Parser.new(tokens, allocator);
     const e: *const expr.Expr = parser.parse() catch return Error.ParseError;
 
-    // const out = visitor.visit(e, allocator) catch |err| return err;
-    _ = interpreter.interpret(e, allocator) catch |err| return err;
+
+    var Printer = AstPrinter.init(allocator);
+    const out = Printer.print(e) catch |err| return err;
+    std.debug.print("{s}\n", .{out});
+    // _ = interpreter.interpret(e, allocator) catch |err| return err;
 
     // for (tokens.items) |token| {
     //     // need to move the token to a new mutable variable, mut_token
