@@ -1,9 +1,11 @@
 const std = @import("std");
 
 const Error = error{
-    EqualityError
+    EqualityError,
+
 };
 
+
 pub fn main() void {
-    std.debug.print("{s}", .{"cooked"});
+    std.debug.print("{!}", .{Error.new(Error.EqualityError)});
 }

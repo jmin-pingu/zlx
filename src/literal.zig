@@ -1,6 +1,7 @@
 const std = @import("std");
 const token_type = @import("token_type.zig");
-const Error = @import("error.zig").Error;
+const RuntimeError = @import("error.zig").RuntimeError;
+ 
 const TokenType = token_type.TokenType;
 
 pub const Tag = enum{Identifier, String, Number, Nil, Bool};
@@ -50,14 +51,14 @@ pub const Literal = union(Tag){
     }
 
     // Public methods
-    pub fn to_string(self: Literal, allocator: std.mem.Allocator) Error![]const u8 {
+    pub fn to_string(self: Literal, allocator: std.mem.Allocator) RuntimeError![]const u8 {
         switch (self) {
             .Number => |val| {
                 return std.fmt.allocPrint(
                     allocator, 
                     "{d}", 
                     .{val}
-                ) catch return Error.AllocError;
+                ) catch return RuntimeError.AllocError;
             },
             .Nil => {
                 return "nil";
@@ -67,7 +68,7 @@ pub const Literal = union(Tag){
                     allocator, 
                     "{any}", 
                     .{val}
-                ) catch return Error.AllocError;
+                ) catch return RuntimeError.AllocError;
             },
             .Identifier => |val| {
                 return val;
@@ -78,46 +79,46 @@ pub const Literal = union(Tag){
         }
     }
 
-    pub fn evaluate_unary(self: Literal, ttype: TokenType) Error!Literal {
+    pub fn evaluate_unary(self: Literal, ttype: TokenType) RuntimeError!Literal {
         switch (ttype) {
             TokenType.MINUS => {
                 // TODO: check numeric
-                if (!self.check_tag(Tag.Number)) return Error.RuntimeError;
+                if (!self.check_tag(Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Number = -self.Number};
             },
             TokenType.BANG => {
                 return Literal{ .Bool = !self.is_truthy()};
             },
             else => {
-                return Error.RuntimeError;
+                return RuntimeError.OperatorError;
             }
         }
     }
 
-    pub fn evaluate_binary(self: Literal, other: Literal, ttype: TokenType, allocator: std.mem.Allocator) Error!Literal {
+    pub fn evaluate_binary(self: Literal, other: Literal, ttype: TokenType, allocator: std.mem.Allocator) RuntimeError!Literal {
         switch (ttype) {
             TokenType.MINUS => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Number = self.Number - other.Number};
             },
             TokenType.SLASH => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Number = self.Number / other.Number};
 
             },
             TokenType.STAR => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Number = self.Number * other.Number};
             },
             TokenType.PLUS => {
                 // Check if both string OR both numeric
-                if (!self.same_tags(other, Tag.String) and !self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.String) and !self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 if (self.check_tag(Tag.String)) {
                     const new_string = std.fmt.allocPrint(
                         allocator, 
                         "{s}{s}", 
                         .{self.String, other.String}
-                    ) catch return Error.AllocError;
+                    ) catch return RuntimeError.AllocError;
                     return Literal{ .String = new_string};
 
                 } else {
@@ -125,19 +126,19 @@ pub const Literal = union(Tag){
                 }
             },
             TokenType.GREATER => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Bool = self.Number > other.Number};
             },
             TokenType.GREATER_EQUAL => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Bool = self.Number >= other.Number};
             },
             TokenType.LESS => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Bool = self.Number < other.Number};
             },
             TokenType.LESS_EQUAL => {
-                if (!self.same_tags(other, Tag.Number)) return Error.RuntimeError;
+                if (!self.same_tags(other, Tag.Number)) return RuntimeError.OperandError;
                 return Literal{ .Bool = self.Number <= other.Number};
             },
             TokenType.BANG_EQUAL => {
@@ -147,7 +148,7 @@ pub const Literal = union(Tag){
                 return Literal{ .Bool = self.equals(other)};
             },
             else => {
-                return Error.RuntimeError;
+                return RuntimeError.OperatorError;
             }
         }
     }

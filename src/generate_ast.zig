@@ -78,7 +78,11 @@ fn defineAST(
             expr_types_union = std.fmt.allocPrint(allocator, "{s}: {s}", .{class.name, class.name}) catch return Error.AllocError;
         } else {
             expr_types = std.fmt.allocPrint(allocator, "{s}, {s}", .{expr_types, class.name}) catch return Error.AllocError;
-            expr_types_union = std.fmt.allocPrint(allocator, "{s}, {s}: {s}", .{expr_types_union, class.name, class.name}) catch return Error.AllocError;
+            expr_types_union = std.fmt.allocPrint(
+                allocator, 
+                "{s}, {s}: {s}", 
+                .{expr_types_union, class.name, class.name}
+            ) catch return Error.AllocError;
         }
     }
 
@@ -183,6 +187,7 @@ fn defineAST(
     }
 }
 
+// Data definitions for reading JSON
 const Classes = struct {
     classes: []Class
 };
