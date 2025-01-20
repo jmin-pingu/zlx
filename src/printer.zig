@@ -4,7 +4,7 @@ const LiteralValue = @import("literal.zig").Literal;
 const e= @import("expr.zig");
 const Expr= @import("expr.zig").Expr;
 const Error= @import("error.zig").Error;
-const Visitor= @import("expr.zig").Visitor;
+const Visitor= @import("visitor.zig").Visitor;
 
 // Helpful Articles
 // - https://www.nmichaels.org/zig/interfaces.html 
@@ -12,16 +12,16 @@ const Visitor= @import("expr.zig").Visitor;
 // - https://www.ryanliptak.com/blog/zig-fieldparentptr-for-dumbos/
 pub const AstPrinter = struct {
     const Self = @This();
-    const T: type = []const u8;
+    const T: type = Error![]const u8;
     allocator: std.mem.Allocator,
 
-    pub fn print(self: *Self, expr: *const Expr) Error!T {
+    pub fn print(self: *Self, expr: *const Expr) T {
         const visitor = self.init_visitor();
         return expr.accept(T, visitor);
     }
 
     /// 
-    pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) Error!T {
+    pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 2) catch return Error.AllocError;
         parsed_expr[0] = expr.left;
         parsed_expr[1] = expr.right;
@@ -29,14 +29,14 @@ pub const AstPrinter = struct {
     }
 
     /// 
-    pub fn visitGroupingExpr(self: *Self, expr: *const e.Grouping) Error!T {
+    pub fn visitGroupingExpr(self: *Self, expr: *const e.Grouping) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 1)  catch return Error.AllocError;
         parsed_expr[0] = expr.expression;
         return try self.parenthesize("group", parsed_expr);
     }
 
     /// 
-    pub fn visitLiteralExpr(self: *Self, expr: *const e.Literal) Error!T {
+    pub fn visitLiteralExpr(self: *Self, expr: *const e.Literal) T {
         switch (expr.value) {
             .Number => |value| {
                 return std.fmt.allocPrint(
@@ -66,7 +66,7 @@ pub const AstPrinter = struct {
     }
 
     /// 
-    pub fn visitUnaryExpr(self: *Self, expr: *const e.Unary) Error!T {
+    pub fn visitUnaryExpr(self: *Self, expr: *const e.Unary) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 1) catch return Error.AllocError;
         parsed_expr[0] = expr.right;
         return try self.parenthesize(expr.operator.lexeme, parsed_expr);
@@ -80,13 +80,14 @@ pub const AstPrinter = struct {
         return .{ .allocator=allocator};
     }
 
-    // TODO: need to double check parenthesize definition
-    fn parenthesize(self: *Self, name: []const u8, exprs: []*const Expr) Error!T {
-        var interior: T = "";
+    // 
+    fn parenthesize(self: *Self, name: []const u8, exprs: []*const Expr) T {
+        var interior: []const u8 = "";
+        // NOTE: is this unnecessary? Is there a way to directly call the visitor methods
         const visitor = self.init_visitor();
 
         for (exprs) |expr| {
-            const parenthesized = expr.accept(T, visitor) catch |err| {return err;};
+            const parenthesized: []const u8 = try expr.accept(T, visitor);
             interior = std.fmt.allocPrint(
                 self.allocator, 
                 "{s} {s}", 
