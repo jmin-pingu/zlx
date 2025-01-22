@@ -9,6 +9,7 @@ pub const Expr= union(enum) {
     grouping: Grouping, 
     literal: Literal, 
     unary: Unary,
+    @"var": Var,
 
     pub fn accept(self: *const Expr, T: type, visitor: ExprVisitor(T)) T {
         switch (self.*) {
@@ -63,7 +64,7 @@ pub const Grouping = struct {
 };
 
 pub const Literal = struct {
-    // NOTE: I really don't like having LiteralValue in token.zig 
+    // NOTE: naming, I really don't like having LiteralValue in token.zig 
     value: LiteralValue,
     pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *const Expr {
         const expr = allocator.create(Expr) catch unreachable;
@@ -98,3 +99,19 @@ pub const Unary = struct {
     }
 };
 
+pub const Var = struct {
+    name: Token,
+    pub fn new(name: Token, allocator: std.mem.Allocator) *const Expr {
+        const expr = allocator.create(Expr) catch unreachable;
+        expr.* = Expr{ 
+            .@"var"=Var{ 
+                .name=name,
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: *const Var, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitVarExpr(self);
+    }
+};

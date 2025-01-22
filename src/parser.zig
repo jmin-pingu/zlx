@@ -17,6 +17,7 @@ var factor_match = [_]TokenType{TokenType.SLASH, TokenType.STAR};
 var comparison_match = [_]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
 var term_match = [_]TokenType{TokenType.MINUS, TokenType.PLUS};
 var print_match = [_]TokenType{TokenType.PRINT};
+var var_match = [_]TokenType{TokenType.VAR};
 
 
 pub const Parser = struct {
@@ -32,7 +33,7 @@ pub const Parser = struct {
         var statements = ArrayList(Stmt).init(self.allocator);
         // TODO: do we need to dealloc the ArrayList(Stmt)
         while (!self.reached_end()) {
-            try statements.append(try self.statement());
+            try statements.append(try self.declaration());
         }
         return statements;
         // return self.expression() catch return Error.ParseError; 
@@ -40,6 +41,31 @@ pub const Parser = struct {
     }
 
     // GRAMMAR RULES
+    // program -> declaration * EOF ; 
+    // declaration  -> varDecl | statement ;
+    // statement  -> exprStmt | printStmt ;
+
+    fn declaration(self: *Parser) Error!Stmt {
+        try {
+            if (self.match(&var_match)) return try self.varDeclaration();
+            return try self.statement();
+        } catch {
+            self.synchronize();
+            return Error.ParseError;
+        };
+    }
+
+    fn varDeclaration(self: *Parser) Error!Stmt {
+        const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name\n");
+        var initializer: ?*const expr.Expr = null; 
+        var equal_match = [_]TokenType{TokenType.EQUAL};
+
+        // NOTE: there may some issues with the case of variable declaration v. initialization
+        if (self.match(&equal_match)) initializer = try self.expression();
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.\n");
+        return s.Var.new(name, initializer);
+    }
+
     fn expression(self: *Parser) Error!*const expr.Expr {
         return try self.equality();
     }
@@ -52,13 +78,13 @@ pub const Parser = struct {
     // Parsing Statements
     fn printStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
-        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value.");
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value.\n");
         return s.Print.new(e);
     }
     
     fn expressionStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
-        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression.");
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression.\n");
         return s.Expression.new(e);
     }
 
@@ -118,12 +144,15 @@ pub const Parser = struct {
         var nil_match = [_]TokenType{TokenType.NIL};
         var literal_match = [_]TokenType{TokenType.NUMBER, TokenType.STRING};
         var paren_match = [_]TokenType{TokenType.LEFT_PAREN};
+        var identifier_match = [_]TokenType{TokenType.IDENTIFIER};
 
         if (self.match(&false_match)) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
         if (self.match(&true_match)) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
         if (self.match(&nil_match)) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
 
         if (self.match(&literal_match)) return expr.Literal.new(self.previous().literal, self.allocator);
+
+        if (self.match(&identifier_match)) return expr.Var.new(self.previous(), self.allocator);
         
         if (self.match(&paren_match)) {
             const e = try self.expression();

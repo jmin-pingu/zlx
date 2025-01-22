@@ -9,6 +9,7 @@ const ExprVisitor = @import("visitor.zig").ExprVisitor;
 const StmtVisitor = @import("visitor.zig").StmtVisitor;
 const Literal= @import("literal.zig").Literal;
 const Tag = @import("literal.zig").Tag;
+const Environment = @import("environment.zig").Environment;
 
 const RuntimeError = @import("error.zig").RuntimeError;
 const Error = @import("error.zig").Error;
@@ -19,10 +20,14 @@ pub const Interpreter = struct {
     const T: type = RuntimeError!Literal;
     const stmt_T: type = RuntimeError!void;
     allocator: std.mem.Allocator,
+    environment: Environment,
 
     // public facing methods 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{ .allocator=allocator};
+    pub fn init(allocator: std.mem.Allocator) Error!Self {
+        return .{ 
+            .environment=try Environment.init(allocator),
+            .allocator=allocator
+        };
     }
 
     // pub fn interpret(self: *Self, expr: *const e.Expr) Error!void {
@@ -66,7 +71,20 @@ pub const Interpreter = struct {
         std.debug.print("{s}\n", .{try value.to_string(self.allocator)});
     }
 
+    pub fn visitVarStmt(self: *Self, stmt: s.Var) stmt_T {
+        const value = self.allocator.create(Literal) catch return RuntimeError.AllocError;
+        if (stmt.initializer) |checked_initializer| {
+            value.* = try self.evaluate(checked_initializer);
+        }
+        self.environment.define(stmt.name.lexeme, value.*, self.allocator) catch return RuntimeError.AllocError;
+    }
+
     // visitorExpr logic
+    pub fn visitVarExpr(self: *Self, expr: *const e.Var) T {
+        const out = try self.environment.get(expr.name.lexeme);
+        return out;
+    }
+
     pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
         // Now evaluate should return a RuntimeError
         const left = try self.evaluate(expr.left);
