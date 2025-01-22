@@ -1,10 +1,8 @@
 const std = @import("std");
-const Token = @import("token.zig").Token;
-const LiteralValue = @import("literal.zig").Literal;
 const e= @import("expr.zig");
 const Expr= @import("expr.zig").Expr;
 const Error= @import("error.zig").Error;
-const Visitor= @import("visitor.zig").Visitor;
+const ExprVisitor= @import("visitor.zig").ExprVisitor;
 
 // Helpful Articles
 // - https://www.nmichaels.org/zig/interfaces.html 
@@ -72,8 +70,8 @@ pub const AstPrinter = struct {
         return try self.parenthesize(expr.operator.lexeme, parsed_expr);
     }
 
-    pub fn init_visitor(self: *Self) Visitor(T) {
-        return Visitor(T).init(self);
+    pub fn init_visitor(self: *Self) ExprVisitor(T) {
+        return ExprVisitor(T).init(self);
     }
 
     pub fn init(allocator: std.mem.Allocator) Self {

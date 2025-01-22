@@ -67,14 +67,14 @@ fn run(source: []const u8, allocator: std.mem.Allocator) Error!void {
     var scanner = Scanner.new(source, allocator);
     const tokens = try scanner.scanTokens();
     var parser = Parser.new(tokens, allocator);
-    const e: *const expr.Expr = parser.parse() catch return Error.ParseError;
+    const statements  = parser.parse() catch return Error.ParseError;
 
 
     // var Printer = AstPrinter.init(allocator);
     // const out = Printer.print(e) catch |err| return err;
     // std.debug.print("{s}\n", .{out});
     var interpreter = Interpreter.init(allocator);
-    _ = interpreter.interpret(e) catch |err| return err;
+    _ = interpreter.interpret(statements) catch |err| return err;
 
     // for (tokens.items) |token| {
     //     // need to move the token to a new mutable variable, mut_token

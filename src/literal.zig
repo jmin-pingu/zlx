@@ -4,9 +4,8 @@ const RuntimeError = @import("error.zig").RuntimeError;
  
 const TokenType = token_type.TokenType;
 
+// Literal should be defined similar to Object in Java
 pub const Tag = enum{Identifier, String, Number, Nil, Bool};
-
-// TODO: Literal is a wrapper, much like Object in Java 
 pub const Literal = union(Tag){
     Identifier: []const u8,
     String: []const u8,

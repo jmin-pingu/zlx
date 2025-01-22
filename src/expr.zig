@@ -2,23 +2,22 @@ pub const std = @import("std");
 const Token = @import("token.zig").Token;
 const LiteralValue = @import("literal.zig").Literal;
 const Error = @import("error.zig").Error;
-const Visitor = @import("visitor.zig").Visitor;
+const ExprVisitor = @import("visitor.zig").ExprVisitor;
 
-// Then for each Binary, Grouping, Literal, and Unary, the implementation is the same!
-pub const ExprTag = enum {Binary, Grouping, Literal, Unary};
-pub const Expr= union(ExprTag) {
-    Binary: Binary, 
-    Grouping: Grouping, 
-    Literal: Literal, 
-    Unary: Unary,
+pub const Expr= union(enum) {
+    binary: Binary, 
+    grouping: Grouping, 
+    literal: Literal, 
+    unary: Unary,
 
-    pub fn accept(self: *const Expr, T: type, visitor: Visitor(T)) T {
+    pub fn accept(self: *const Expr, T: type, visitor: ExprVisitor(T)) T {
         switch (self.*) {
             inline else => |*case| return case.accept(T, visitor),
         }
     }
 };
  
+// NOTE: does it make for us to operate on `*const Expr` instead of `Expr`
 pub const Binary = struct {
     left: *const Expr,
     operator: Token,
@@ -31,15 +30,15 @@ pub const Binary = struct {
     ) *const Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr { 
-            .Binary= Binary{ 
+            .binary= Binary{ 
                 .left=left, .operator=operator, .right=right, 
             }
         };
         return expr;
     }
 
-    pub fn accept(self: *const Binary, T: type, visitor: Visitor(T)) T { 
-        return try visitor.visitBinaryExpr(self);
+    pub fn accept(self: *const Binary, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitBinaryExpr(self);
     }
 };
 
@@ -51,15 +50,15 @@ pub const Grouping = struct {
     ) *const Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
-            .Grouping= Grouping{ 
+            .grouping= Grouping{ 
                 .expression=expression, 
             }
         };
         return expr;
     }
 
-    pub fn accept(self: *const Grouping, T: type, visitor: Visitor(T)) T { 
-        return try visitor.visitGroupingExpr(self);
+    pub fn accept(self: *const Grouping, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitGroupingExpr(self);
     }
 };
 
@@ -69,15 +68,15 @@ pub const Literal = struct {
     pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *const Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
-            .Literal=Literal{ 
+            .literal=Literal{ 
                 .value=value, 
             }
         };
         return expr;
     }
 
-    pub fn accept(self: *const Literal, T: type, visitor: Visitor(T)) T { 
-        return try visitor.visitLiteralExpr(self);
+    pub fn accept(self: *const Literal, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitLiteralExpr(self);
     }
 };
 
@@ -87,15 +86,15 @@ pub const Unary = struct {
     pub fn new(operator: Token, right: *const Expr, allocator: std.mem.Allocator) *const Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
-            .Unary=Unary{ 
+            .unary=Unary{ 
                 .operator=operator, .right=right, 
             }
         };
         return expr;
     }
 
-    pub fn accept(self: *const Unary, T: type, visitor: Visitor(T)) T { 
-        return try visitor.visitUnaryExpr(self);
+    pub fn accept(self: *const Unary, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitUnaryExpr(self);
     }
 };
 

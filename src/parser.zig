@@ -4,15 +4,19 @@ const Token = @import("token.zig").Token;
 const LiteralValue = @import("literal.zig").Literal;
 const TokenType = @import("token_type.zig").TokenType;
 const expr = @import("expr.zig");
+const Stmt = @import("stmt.zig").Stmt;
+const s = @import("stmt.zig");
 
 const ArrayList = std.ArrayList;
 
 // TODO: Add more granular errors for ParserErrors
+// TODO: make these arrays evaluated at compile time since we know these are FIXED sizes
 var equality_match = [_]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
 var unary_match = [_]TokenType{TokenType.BANG, TokenType.MINUS};
 var factor_match = [_]TokenType{TokenType.SLASH, TokenType.STAR};
 var comparison_match = [_]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
 var term_match = [_]TokenType{TokenType.MINUS, TokenType.PLUS};
+var print_match = [_]TokenType{TokenType.PRINT};
 
 
 pub const Parser = struct {
@@ -24,8 +28,15 @@ pub const Parser = struct {
         return Parser{ .tokens = tokens, .allocator = allocator};
     }
 
-    pub fn parse(self: *Parser) Error!*const expr.Expr {
-        return self.expression() catch return Error.ParseError; //std.debug.panic("Panicked due to Parse Error");
+    pub fn parse(self: *Parser) Error!ArrayList(Stmt) {
+        var statements = ArrayList(Stmt).init(self.allocator);
+        // TODO: do we need to dealloc the ArrayList(Stmt)
+        while (!self.reached_end()) {
+            try statements.append(try self.statement());
+        }
+        return statements;
+        // return self.expression() catch return Error.ParseError; 
+        //std.debug.panic("Panicked due to Parse Error");
     }
 
     // GRAMMAR RULES
@@ -33,6 +44,25 @@ pub const Parser = struct {
         return try self.equality();
     }
 
+    fn statement(self: *Parser) Error!Stmt {
+        if (self.match(&print_match)) return self.printStatement();
+        return self.expressionStatement();
+    }
+
+    // Parsing Statements
+    fn printStatement(self: *Parser) Error!Stmt {
+        const e = self.expression() catch return Error.ParseError; 
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value.");
+        return s.Print.new(e);
+    }
+    
+    fn expressionStatement(self: *Parser) Error!Stmt {
+        const e = self.expression() catch return Error.ParseError; 
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression.");
+        return s.Expression.new(e);
+    }
+
+    // Parsing Expressions
     fn equality(self: *Parser) Error!*const expr.Expr {
         var e = try self.comparison();
         while (self.match(&equality_match)) {

@@ -1,22 +1,72 @@
 const std = @import("std");
 const e= @import("expr.zig");
-const Expr = @import("expr.zig").Expr;
+const s = @import("stmt.zig");
 const Token = @import("token.zig").Token;
 const TokenType = @import("token_type.zig").TokenType;
-const Visitor = @import("visitor.zig").Visitor;
+const ArrayList = std.ArrayList;
 
-const literal = @import("literal.zig");
+const ExprVisitor = @import("visitor.zig").ExprVisitor;
+const StmtVisitor = @import("visitor.zig").StmtVisitor;
 const Literal= @import("literal.zig").Literal;
 const Tag = @import("literal.zig").Tag;
+
 const RuntimeError = @import("error.zig").RuntimeError;
 const Error = @import("error.zig").Error;
 
+// TODO: rethink this struct and whether I want the `Visitor`s as fields
 pub const Interpreter = struct {
     const Self = @This();
     const T: type = RuntimeError!Literal;
+    const stmt_T: type = RuntimeError!void;
     allocator: std.mem.Allocator,
 
-    // TODO: implement visitor logic
+    // public facing methods 
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{ .allocator=allocator};
+    }
+
+    // pub fn interpret(self: *Self, expr: *const e.Expr) Error!void {
+    //     const value = self.evaluate(expr) catch return Error.RuntimeError;
+    //     std.debug.print("{s}\n", .{value.to_string(self.allocator) catch return RuntimeError.AllocError});
+    // }
+    
+    pub fn interpret(self: *Self, statements: ArrayList(s.Stmt)) Error!void {
+        for (statements.items) |statement| {
+            self.execute(statement) catch return Error.RuntimeError;
+        }     
+    }
+
+    // private methods
+    fn evaluate(self: *Self, expr: *const e.Expr) T {
+        const visitor = self.initExprVisitor();
+        return expr.accept(T, visitor);
+    }
+
+    fn execute(self: *Self, stmt: s.Stmt) stmt_T {
+        const visitor = self.initStmtVisitor();
+        return stmt.accept(stmt_T, visitor);
+    }
+
+    // interface initialization methods
+    fn initExprVisitor(self: *Self) ExprVisitor(T) {
+        return ExprVisitor(T).init(self);
+    }
+
+    fn initStmtVisitor(self: *Self) StmtVisitor(stmt_T) {
+        return StmtVisitor(stmt_T).init(self);
+    }
+
+    // visitorStmt logic
+    pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
+        _ = self.evaluate(stmt.expression) catch |err| return err;
+    }
+
+    pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
+        const value = try self.evaluate(stmt.expression);
+        std.debug.print("{s}\n", .{try value.to_string(self.allocator)});
+    }
+
+    // visitorExpr logic
     pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
         // Now evaluate should return a RuntimeError
         const left = try self.evaluate(expr.left);
@@ -82,18 +132,15 @@ pub const Interpreter = struct {
         };
     }
 
-    // TODO: implement visitor logic
     pub fn visitGroupingExpr(self: *Self, expr: *const e.Grouping) T {
         return self.evaluate(expr.expression);
     }
 
-    // TODO: implement visitor logic
     pub fn visitLiteralExpr(self: *Self, expr: *const e.Literal) T {
         _ = self;
         return expr.value;
     }
 
-    // TODO: implement visitor logic
     pub fn visitUnaryExpr(self: *Self, expr: *const e.Unary) T {
         const right = try self.evaluate(expr.right);
         return switch (expr.operator.ttype) {
@@ -113,23 +160,6 @@ pub const Interpreter = struct {
         };
     }
 
-    fn evaluate(self: *Self, expr: *const Expr) T {
-        const visitor = self.init_visitor();
-        return expr.accept(T, visitor);
-    }
-
-    fn init_visitor(self: *Self) Visitor(T) {
-        return Visitor(T).init(self);
-    }
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{ .allocator=allocator};
-    }
-
-    pub fn interpret(self: *Self, expr: *const Expr) Error!void {
-        const value = self.evaluate(expr) catch return Error.RuntimeError;
-        std.debug.print("{s}\n", .{value.to_string(self.allocator) catch return RuntimeError.AllocError});
-    }
 
     fn runtime_error_msg(self: *Self, runtime_err: RuntimeError, token: Token) RuntimeError {
         const message = "";
