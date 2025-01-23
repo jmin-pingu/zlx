@@ -23,6 +23,7 @@ pub fn ExprVisitor(comptime T: type) type {
         visitLiteralExprFn: *const fn (*anyopaque, expr: *const e.Literal) T,
         visitUnaryExprFn: *const fn (*anyopaque, expr: *const e.Unary) T,
         visitVarExprFn: *const fn (*anyopaque, expr: *const e.Var) T,
+        visitAssignExprFn: *const fn (*anyopaque, expr: *const e.Assign) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -57,6 +58,11 @@ pub fn ExprVisitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitVarExpr, .{self, expr});
                 }
+
+                pub fn visitAssignExprImpl(pointer: *anyopaque, expr: *const e.Assign) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitAssignExpr, .{self, expr});
+                }
             };
         
             return .{
@@ -66,6 +72,7 @@ pub fn ExprVisitor(comptime T: type) type {
                 .visitLiteralExprFn = gen.visitLiteralExprImpl,
                 .visitUnaryExprFn = gen.visitUnaryExprImpl,
                 .visitVarExprFn = gen.visitVarExprImpl,
+                .visitAssignExprFn = gen.visitAssignExprImpl,
             };
         }
 
@@ -87,6 +94,10 @@ pub fn ExprVisitor(comptime T: type) type {
 
         pub inline fn visitVarExpr(self: Self, expr: *const e.Var) T {
             return self.visitVarExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitAssignExpr(self: Self, expr: *const e.Assign) T {
+            return self.visitAssignExprFn(self.ptr, expr);
         }
     };
 }

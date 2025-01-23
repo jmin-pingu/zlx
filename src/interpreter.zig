@@ -13,6 +13,7 @@ const Environment = @import("environment.zig").Environment;
 
 const RuntimeError = @import("error.zig").RuntimeError;
 const Error = @import("error.zig").Error;
+const err = @import("error.zig");
 
 // TODO: rethink this struct and whether I want the `Visitor`s as fields
 pub const Interpreter = struct {
@@ -63,7 +64,7 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
-        _ = self.evaluate(stmt.expression) catch |err| return err;
+        _ = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
@@ -76,13 +77,18 @@ pub const Interpreter = struct {
         if (stmt.initializer) |checked_initializer| {
             value.* = try self.evaluate(checked_initializer);
         }
-        self.environment.define(stmt.name.lexeme, value.*, self.allocator) catch return RuntimeError.AllocError;
+        self.environment.define(stmt.name, value.*, self.allocator) catch return RuntimeError.AllocError;
     }
 
     // visitorExpr logic
+    pub fn visitAssignExpr(self: *Self, expr: *const e.Assign) T {
+        const value = try self.evaluate(expr.value);
+        self.environment.assign(expr.name, value, self.allocator) catch return RuntimeError.AllocError;
+        return value;
+    }
+
     pub fn visitVarExpr(self: *Self, expr: *const e.Var) T {
-        const out = try self.environment.get(expr.name.lexeme);
-        return out;
+        return try self.environment.get(expr.name);
     }
 
     pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
@@ -146,7 +152,12 @@ pub const Interpreter = struct {
                 return RuntimeError.OperatorError;
             }
         } catch |runtime_err| {
-                return runtime_error_msg(runtime_err, e.operator , self.allocator);
+            const err_msg = std.fmt.allocPrint(
+                self.allocator, 
+                "operator {s} is not a binary operator\n", 
+                .{expr.operator.lexeme}
+            ) catch return RuntimeError.AllocError;
+            return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
         };
     }
 
@@ -174,21 +185,15 @@ pub const Interpreter = struct {
                 return RuntimeError.OperatorError;
             }
         } catch |runtime_err| { 
-            return runtime_error_msg(runtime_err, expr.operator);
-        };
-    }
-
-
-    fn runtime_error_msg(self: *Self, runtime_err: RuntimeError, token: Token) RuntimeError {
-        const message = "";
-        std.debug.print("{s}", .{
-            std.fmt.allocPrint(
+            // TODO: change input to runtime_error_msg
+            const err_msg = std.fmt.allocPrint(
                 self.allocator, 
-                "[line: {d}] RuntimeError: {!} {s} {s}\n", 
-                .{token.line, runtime_err, message, token.lexeme}
-            ) catch return Error.AllocError}
-        );
-        return Error.RuntimeError; 
+                "operator {s} is not a unary operator\n", 
+                .{expr.operator.lexeme}
+            ) catch return RuntimeError.AllocError;
+
+            return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+        };
     }
 };
 

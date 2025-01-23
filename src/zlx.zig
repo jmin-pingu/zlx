@@ -25,19 +25,18 @@ pub fn main() Error!void {
     }
 
     // Initialize interpreter
-    const interpreter = try allocator.create(Interpreter);
-    interpreter.* = try Interpreter.init(allocator);
+    var interpreter = try Interpreter.init(allocator);
     // Ensure correct usage
     if (argv.items.len > 2) {
         std.debug.print("Usage Error: zlox [program_path]\n", .{});
         return Error.UsageError;
     } else if (argv.items.len == 1) {
         std.debug.print("Opening interpreter: {s}\n", .{argv.items});
-        try run_prompt(interpreter, allocator);
+        try run_prompt(&interpreter, allocator);
 
     } else {
         std.debug.print("Running program: {s}\n", .{argv.items[1]});
-        try run_file(argv.items[1], interpreter, allocator);
+        try run_file(argv.items[1], &interpreter, allocator);
     }
 }
 

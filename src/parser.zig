@@ -28,7 +28,6 @@ pub const Parser = struct {
     pub fn new(tokens: ArrayList(Token), allocator: std.mem.Allocator) Parser {
         return Parser{ .tokens = tokens, .allocator = allocator};
     }
-
     pub fn parse(self: *Parser) Error!ArrayList(Stmt) {
         var statements = ArrayList(Stmt).init(self.allocator);
         // TODO: do we need to dealloc the ArrayList(Stmt)
@@ -40,11 +39,13 @@ pub const Parser = struct {
         //std.debug.panic("Panicked due to Parse Error");
     }
 
-    // GRAMMAR RULES
-    // program -> declaration * EOF ; 
-    // declaration  -> varDecl | statement ;
-    // statement  -> exprStmt | printStmt ;
-
+    // Parsing Statements
+    //
+    // STATEMENT GRAMMAR RULES
+    // program        -> declaration * EOF ; 
+    // declaration    -> varDecl | statement ;
+    // statement      -> exprStmt | printStmt ;
+    //
     fn declaration(self: *Parser) Error!Stmt {
         try {
             if (self.match(&var_match)) return try self.varDeclaration();
@@ -66,16 +67,11 @@ pub const Parser = struct {
         return s.Var.new(name, initializer);
     }
 
-    fn expression(self: *Parser) Error!*const expr.Expr {
-        return try self.equality();
-    }
-
     fn statement(self: *Parser) Error!Stmt {
         if (self.match(&print_match)) return self.printStatement();
         return self.expressionStatement();
     }
 
-    // Parsing Statements
     fn printStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value.\n");
@@ -87,8 +83,54 @@ pub const Parser = struct {
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression.\n");
         return s.Expression.new(e);
     }
-
+    
     // Parsing Expressions
+    //
+    // EXPRESSION GRAMMAR RULES
+    // expression     -> assignment ;
+    // assignment     -> IDENTIFIER "=" assignment 
+    //                   | equality ;
+    // equality       -> comparison ( ( "!=" | "==" ) comparison )* ;
+    // comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+    // term           -> factor ( ( "-" | "+" ) factor )* ;
+    // factor         -> unary ( ( "/" | "*" ) unary )* ;
+    // unary          -> ( "!" | "-" ) unary
+    //                -> | primary ;
+    // primary        -> NUMBER | STRING | "true" | "false" | "nil"
+    //                   | "(" expression ")" ;
+
+    fn expression(self: *Parser) Error!*const expr.Expr {
+        return try self.assignment();
+    }
+
+    fn assignment(self: *Parser) Error!*const expr.Expr {
+        var equal_match = [_]TokenType{TokenType.EQUAL};
+
+        // First naively evaluate the token before the '='
+        const greedy_expr = try self.equality();
+        var equals: Token = undefined;
+        var value: *const expr.Expr = undefined;
+
+        // Check if we are indeed "assigning" 
+        // Step-forward tokens until '=' 
+        if (self.match(&equal_match)) {
+            equals = self.previous();
+            value = try self.assignment();
+
+            // Ensure that the naively evaluated token is a Var (variable)
+            switch (greedy_expr.*) {
+                .@"var"=> |@"var"| {
+                    const name = @"var".name;
+                    return expr.Assign.new(name, value, self.allocator);
+                },
+                else => {
+                    return Error.AssignmentError;
+                }
+            }
+        }
+        return greedy_expr;
+    }
+
     fn equality(self: *Parser) Error!*const expr.Expr {
         var e = try self.comparison();
         while (self.match(&equality_match)) {

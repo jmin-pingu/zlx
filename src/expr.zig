@@ -10,6 +10,7 @@ pub const Expr= union(enum) {
     literal: Literal, 
     unary: Unary,
     @"var": Var,
+    assign: Assign,
 
     pub fn accept(self: *const Expr, T: type, visitor: ExprVisitor(T)) T {
         switch (self.*) {
@@ -113,5 +114,24 @@ pub const Var = struct {
 
     pub fn accept(self: *const Var, T: type, visitor: ExprVisitor(T)) T { 
         return visitor.visitVarExpr(self);
+    }
+};
+
+pub const Assign = struct {
+    name: Token,
+    value: *const Expr,
+    pub fn new(name: Token, value: *const Expr, allocator: std.mem.Allocator) *const Expr {
+        const expr = allocator.create(Expr) catch unreachable;
+        expr.* = Expr{ 
+            .assign=Assign{ 
+                .name=name,
+                .value=value,
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: *const Assign, T: type, visitor: ExprVisitor(T)) T { 
+        return visitor.visitAssignExpr(self);
     }
 };
