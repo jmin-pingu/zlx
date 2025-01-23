@@ -24,6 +24,7 @@ pub const RuntimeError = error {
     OperatorError,
     AllocError,
     UndefinedVariable,
+    UndeclaredVariable,
 };
 
 

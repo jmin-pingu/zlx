@@ -18,16 +18,29 @@ pub const Environment = struct {
         };
     }
 
-    pub fn define(self: *Environment, name: Token, value: Literal, allocator: std.mem.Allocator) Error!void {
+    pub fn deinit(self: *Environment) void {
+        self.values.deinit(); 
+    }
+
+    pub fn define(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) Error!void {
         // Issue: need to copy the data inside both value and name inside the hashmap.
         const copied_name = try allocator.alloc(u8, name.lexeme.len);
         @memcpy(copied_name, name.lexeme);
         try self.values.put(copied_name, value);
     }
 
-    pub fn get(self: Environment, name: Token, allocator: std.mem.Allocator) RuntimeError!Literal {
-        if (self.values.get(name.lexeme)) |value| {
-            return value.?;
+    pub fn get(self: Environment, name: Token, allocator: std.mem.Allocator) RuntimeError!?Literal {
+        if (self.values.get(name.lexeme)) |optional| {
+            if (optional) |value| {
+                return value;
+            } else {
+                const error_msg = std.fmt.allocPrint(
+                    allocator, 
+                    "the variable '{s}' is undeclared", 
+                    .{name.lexeme}
+                ) catch return RuntimeError.AllocError;
+                return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
+            }
         } else if (self.enclosing) |parent_environment| {
             return parent_environment.get(name, allocator);
         } else {
@@ -55,12 +68,44 @@ pub const Environment = struct {
         }
     }
 
-    pub fn print(self: Environment) void {
-        var iterator = self.values.iterator();
+    pub fn print(self: Environment, allocator: std.mem.Allocator) RuntimeError!void {
+        std.debug.print("-----\nenvs:\n", .{});
 
-        std.debug.print("printing environment: \n", .{});
+        try self.blockPrint(0, allocator);
+    }
+
+    // TODO: figure out backend of blockPrint
+    fn blockPrint(self: Environment, tabs: u8, allocator: std.mem.Allocator) RuntimeError!void {
+        var spacing: []const u8 = "  "; 
+        var i : u8 = 0;
+
+        if (tabs == 0) {
+            std.debug.print("{c}\n", .{'{'});
+        }
+
+        while (i < tabs) {
+            spacing = std.fmt.allocPrint(
+                allocator, 
+                "{s}{s}", 
+                .{spacing, "  "}
+            ) catch return RuntimeError.AllocError;
+            i += 1;
+        }
+
+        var iterator = self.values.iterator();
         while (iterator.next()) |kv| {
-            std.debug.print("\t{s}:{any}\n", .{kv.key_ptr.*, kv.value_ptr.*.?});
+            if (kv.value_ptr.*) |value| {
+                std.debug.print("{s}{s}:{}\n", .{spacing, kv.key_ptr.*, value});
+
+            } else {
+                std.debug.print("{s}{s}:{s}\n", .{spacing, kv.key_ptr.*, "uninit"});
+            }
+        } 
+
+        if (self.enclosing) |parent_environment| {
+            try parent_environment.blockPrint(tabs + 1, allocator);
+        } else {
+            std.debug.print("{c}\n", .{'}'});
         }
     }
 };
