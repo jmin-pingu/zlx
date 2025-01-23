@@ -1,8 +1,11 @@
-pub const std = @import("std");
-const Token = @import("token.zig").Token;
-const LiteralValue = @import("literal.zig").Literal;
-const Error = @import("error.zig").Error;
-const ExprVisitor = @import("visitor.zig").ExprVisitor;
+const std = @import("std");
+const Visitor = @import("visitor.zig").ExprVisitor;
+
+// Custom Imports
+const Error = @import("../error.zig").Error;
+const Token = @import("../token/token.zig").Token;
+const LiteralValue = @import("../token/literal.zig").Literal;
+
 
 pub const Expr= union(enum) {
     binary: Binary, 
@@ -12,7 +15,7 @@ pub const Expr= union(enum) {
     @"var": Var,
     assign: Assign,
 
-    pub fn accept(self: *const Expr, T: type, visitor: ExprVisitor(T)) T {
+    pub fn accept(self: *const Expr, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
             inline else => |*case| return case.accept(T, visitor),
         }
@@ -39,7 +42,7 @@ pub const Binary = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Binary, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Binary, T: type, visitor: Visitor(T)) T { 
         return visitor.visitBinaryExpr(self);
     }
 };
@@ -59,7 +62,7 @@ pub const Grouping = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Grouping, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Grouping, T: type, visitor: Visitor(T)) T { 
         return visitor.visitGroupingExpr(self);
     }
 };
@@ -77,7 +80,7 @@ pub const Literal = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Literal, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Literal, T: type, visitor: Visitor(T)) T { 
         return visitor.visitLiteralExpr(self);
     }
 };
@@ -95,7 +98,7 @@ pub const Unary = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Unary, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Unary, T: type, visitor: Visitor(T)) T { 
         return visitor.visitUnaryExpr(self);
     }
 };
@@ -112,7 +115,7 @@ pub const Var = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Var, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Var, T: type, visitor: Visitor(T)) T { 
         return visitor.visitVarExpr(self);
     }
 };
@@ -131,7 +134,7 @@ pub const Assign = struct {
         return expr;
     }
 
-    pub fn accept(self: *const Assign, T: type, visitor: ExprVisitor(T)) T { 
+    pub fn accept(self: *const Assign, T: type, visitor: Visitor(T)) T { 
         return visitor.visitAssignExpr(self);
     }
 };

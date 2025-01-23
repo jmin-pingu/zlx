@@ -1,8 +1,8 @@
 const std = @import("std");
+
 const TokenType = @import("token_type.zig").TokenType;
 const Literal = @import("literal.zig").Literal;
 const Tag = @import("literal.zig").Tag;
-
 // union for literal values
 // Data Oriented Programming: we are fundamentally wasting space with literal since more often than not, it will be Nil
 pub const Token = struct {

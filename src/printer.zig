@@ -1,8 +1,10 @@
 const std = @import("std");
-const e= @import("expr.zig");
-const Expr= @import("expr.zig").Expr;
+
+const e= @import("expr/expr.zig");
+const Expr= @import("expr/expr.zig").Expr;
+const ExprVisitor= @import("expr/visitor.zig").ExprVisitor;
+ 
 const Error= @import("error.zig").Error;
-const ExprVisitor= @import("visitor.zig").ExprVisitor;
 
 // Helpful Articles
 // - https://www.nmichaels.org/zig/interfaces.html 

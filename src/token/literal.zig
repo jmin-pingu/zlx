@@ -1,9 +1,10 @@
 const std = @import("std");
+
 const token_type = @import("token_type.zig");
-const RuntimeError = @import("error.zig").RuntimeError;
- 
 const TokenType = token_type.TokenType;
 
+const RuntimeError = @import("../error.zig").RuntimeError;
+ 
 // Literal should be defined similar to Object in Java
 pub const Tag = enum{Identifier, String, Number, Nil, Bool};
 pub const Literal = union(Tag){

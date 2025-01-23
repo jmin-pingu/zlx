@@ -1,22 +1,26 @@
 const std = @import("std");
-const Error = @import("error.zig").Error;
-const Token = @import("token.zig").Token;
-const LiteralValue = @import("literal.zig").Literal;
-const TokenType = @import("token_type.zig").TokenType;
-const expr = @import("expr.zig");
-const Stmt = @import("stmt.zig").Stmt;
-const s = @import("stmt.zig");
 
 const ArrayList = std.ArrayList;
 
+const Token = @import("token/token.zig").Token;
+const TokenType = @import("token/token_type.zig").TokenType;
+const LiteralValue = @import("token/literal.zig").Literal;
+
+const expr = @import("expr/expr.zig");
+
+const Stmt = @import("stmt/stmt.zig").Stmt;
+const s = @import("stmt/stmt.zig");
+
+const Error = @import("error.zig").Error;
+
 // TODO: Add more granular errors for ParserErrors
 // TODO: make these arrays evaluated at compile time since we know these are FIXED sizes
-var equality_match = [_]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
-var unary_match = [_]TokenType{TokenType.BANG, TokenType.MINUS};
-var factor_match = [_]TokenType{TokenType.SLASH, TokenType.STAR};
-var comparison_match = [_]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
-var term_match = [_]TokenType{TokenType.MINUS, TokenType.PLUS};
-var var_match = [_]TokenType{TokenType.VAR};
+const equality_match = [2]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
+const unary_match = [2]TokenType{TokenType.BANG, TokenType.MINUS};
+const factor_match = [2]TokenType{TokenType.SLASH, TokenType.STAR};
+const comparison_match = [4]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
+const term_match = [2]TokenType{TokenType.MINUS, TokenType.PLUS};
+const var_match = [1]TokenType{TokenType.VAR};
 
 // TODO: need to reason better about when to heap allocate
 // TODO: implement better error messaging in the parser
@@ -45,13 +49,18 @@ pub const Parser = struct {
     // program        -> declaration * EOF ; 
     // declaration    -> varDecl 
     //                   | statement ;
-    // statement      -> exprStmt 
+    // statement      -> exprStmt
+    //                   | ifStmt
     //                   | printStmt
     //                   | block ;
+    // ifStmt         -> if" "(" expression ")" statement
+    //                   ( "else" statement )? ;  
     // block          -> "{" declaration* "}" ;
+    //
+    
     fn declaration(self: *Parser) Error!Stmt {
         try {
-            if (self.match(&var_match)) return try self.varDeclaration();
+            if (self.match(var_match.len, var_match)) return try self.varDeclaration();
             return try self.statement();
         } catch {
             self.synchronize();
@@ -62,20 +71,16 @@ pub const Parser = struct {
     fn varDeclaration(self: *Parser) Error!Stmt {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
         var initializer: ?*const expr.Expr = null; 
-        var equal_match = [_]TokenType{TokenType.EQUAL};
 
         // NOTE: there may some issues with the case of variable declaration v. initialization
-        if (self.match(&equal_match)) initializer = try self.expression();
+        if (self.match(1, [1]TokenType{TokenType.EQUAL})) initializer = try self.expression();
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration");
         return s.Var.new(name, initializer);
     }
 
     fn statement(self: *Parser) Error!Stmt {
-        // TODO: add BLOCK_MATCH condition;
-        var print_match = [_]TokenType{TokenType.PRINT};
-        var brace_match = [_]TokenType{TokenType.LEFT_BRACE};
-        if (self.match(&print_match)) return self.printStatement();
-        if (self.match(&brace_match)) return s.Block.new(try self.block());
+        if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
+        if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.block());
         return self.expressionStatement();
     }
 
@@ -118,8 +123,6 @@ pub const Parser = struct {
     }
 
     fn assignment(self: *Parser) Error!*const expr.Expr {
-        var equal_match = [_]TokenType{TokenType.EQUAL};
-
         // First naively evaluate the token before the '='
         const greedy_expr = try self.equality();
         var equals: Token = undefined;
@@ -127,7 +130,7 @@ pub const Parser = struct {
 
         // Check if we are indeed "assigning" 
         // Step-forward tokens until '=' 
-        if (self.match(&equal_match)) {
+        if (self.match(1, [1]TokenType{TokenType.EQUAL})) {
             equals = self.previous();
             value = try self.assignment();
 
@@ -147,7 +150,7 @@ pub const Parser = struct {
 
     fn equality(self: *Parser) Error!*const expr.Expr {
         var e = try self.comparison();
-        while (self.match(&equality_match)) {
+        while (self.match(equality_match.len, equality_match)) {
             const operator = self.previous();
             const right = try self.comparison();
             e = expr.Binary.new(e, operator, right, self.allocator);
@@ -157,7 +160,7 @@ pub const Parser = struct {
 
     fn comparison(self: *Parser) Error!*const expr.Expr {
         var e = try self.term();
-        while (self.match(&comparison_match)) {
+        while (self.match(comparison_match.len, comparison_match)) {
             const operator = self.previous();
             const right = try self.term();
             e = expr.Binary.new(e, operator, right, self.allocator);
@@ -167,7 +170,7 @@ pub const Parser = struct {
 
     fn term(self: *Parser) Error!*const expr.Expr {
         var e = try self.factor();
-        while (self.match(&term_match)) {
+        while (self.match(term_match.len, term_match)) {
             const operator = self.previous();
             const right = try self.factor();
             e = expr.Binary.new(e, operator, right, self.allocator);
@@ -177,7 +180,7 @@ pub const Parser = struct {
 
     fn factor(self: *Parser) Error!*const expr.Expr {
         var e = try self.unary();
-        while (self.match(&factor_match)) {
+        while (self.match(factor_match.len, factor_match)) {
             const operator = self.previous();
             const right = try self.unary();
             e = expr.Binary.new(e, operator, right, self.allocator);
@@ -186,7 +189,7 @@ pub const Parser = struct {
     }
 
     fn unary(self: *Parser) Error!*const expr.Expr {
-        if (self.match(&unary_match)) {
+        if (self.match(unary_match.len, unary_match)) {
             const operator = self.previous();
             const right = try self.unary();
             return expr.Unary.new(operator, right, self.allocator);
@@ -195,22 +198,15 @@ pub const Parser = struct {
     }
 
     fn primary(self: *Parser) Error!*const expr.Expr {
-        var false_match = [_]TokenType{TokenType.FALSE};
-        var true_match = [_]TokenType{TokenType.TRUE};
-        var nil_match = [_]TokenType{TokenType.NIL};
-        var literal_match = [_]TokenType{TokenType.NUMBER, TokenType.STRING};
-        var paren_match = [_]TokenType{TokenType.LEFT_PAREN};
-        var identifier_match = [_]TokenType{TokenType.IDENTIFIER};
-
-        if (self.match(&false_match)) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
-        if (self.match(&true_match)) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
-        if (self.match(&nil_match)) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.FALSE})) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.TRUE})) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.NIL})) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
         // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate
-        if (self.match(&literal_match)) return expr.Literal.new(self.previous().literal, self.allocator);
+        if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return expr.Literal.new(self.previous().literal, self.allocator);
 
-        if (self.match(&identifier_match)) return expr.Var.new(self.previous(), self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return expr.Var.new(self.previous(), self.allocator);
         
-        if (self.match(&paren_match)) {
+        if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
             const e = try self.expression();
             _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression");
             return expr.Grouping.new(e, self.allocator);
@@ -246,7 +242,7 @@ pub const Parser = struct {
     }
     
     // HELPER FUNCTIONS
-    fn match(self: *Parser, types: []TokenType) bool { 
+    fn match(self: *Parser, comptime len: usize, types: [len]TokenType) bool { 
         for (types) |ttype| {
             if (self.check(ttype)) {
                 _ = self.advance();

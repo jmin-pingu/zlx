@@ -1,11 +1,15 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
+
 const Scanner = @import("scanner.zig").Scanner;
 const Parser = @import("parser.zig").Parser;
-const Error = @import("error.zig").Error;
-const expr = @import("expr.zig");
 const AstPrinter = @import("printer.zig").AstPrinter;
 const Interpreter = @import("interpreter.zig").Interpreter;
+
+const Error = @import("error.zig").Error;
+
+const expr = @import("expr/expr.zig");
+
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
 // TODO: need to think deeply about how to have Literal's persist in Environment

@@ -1,14 +1,18 @@
 const std = @import("std");
-const e= @import("expr.zig");
-const s = @import("stmt.zig");
-const Token = @import("token.zig").Token;
-const TokenType = @import("token_type.zig").TokenType;
+
 const ArrayList = std.ArrayList;
 
-const ExprVisitor = @import("visitor.zig").ExprVisitor;
-const StmtVisitor = @import("visitor.zig").StmtVisitor;
-const Literal= @import("literal.zig").Literal;
-const Tag = @import("literal.zig").Tag;
+const Token = @import("token/token.zig").Token;
+const TokenType = @import("token/token_type.zig").TokenType;
+const Literal= @import("token/literal.zig").Literal;
+const Tag = @import("token/literal.zig").Tag;
+
+const e= @import("expr/expr.zig");
+const ExprVisitor = @import("expr/visitor.zig").ExprVisitor;
+
+const s = @import("stmt/stmt.zig");
+const StmtVisitor = @import("stmt/visitor.zig").StmtVisitor;
+
 const Environment = @import("environment.zig").Environment;
 
 const RuntimeError = @import("error.zig").RuntimeError;
@@ -42,7 +46,8 @@ pub const Interpreter = struct {
                 }
                 return Error.RuntimeError;
             };
-            self.environment.print(self.allocator) catch return Error.AllocError;
+            // Uncomment for debugging environments
+            // self.environment.print(self.allocator) catch return Error.AllocError;
         }     
     }
 

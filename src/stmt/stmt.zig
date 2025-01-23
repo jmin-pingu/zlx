@@ -1,8 +1,9 @@
 const std = @import("std");
-const e = @import("expr.zig");
-const Token = @import("token.zig").Token;
-const StmtVisitor = @import("visitor.zig").StmtVisitor;
- 
+const Visitor = @import("visitor.zig").StmtVisitor;
+
+// Custom Imports
+const Token = @import("../token/token.zig").Token;
+const e = @import("../expr/expr.zig");
 const ArrayList = std.ArrayList;
 
 pub const Stmt= union(enum) {
@@ -11,7 +12,7 @@ pub const Stmt= union(enum) {
     print: Print, 
     @"var": Var, 
 
-    pub fn accept(self: *const Stmt, T: type, visitor: StmtVisitor(T)) T {
+    pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
             inline else => |*case| return case.accept(T, visitor),
         }
@@ -21,7 +22,7 @@ pub const Stmt= union(enum) {
 pub const Block = struct { 
     statements: ArrayList(Stmt),
 
-    pub fn accept(self: Block, T: type, visitor: StmtVisitor(T)) T {
+    pub fn accept(self: Block, T: type, visitor: Visitor(T)) T {
         return visitor.visitBlockStmt(self);
     }
 
@@ -33,7 +34,7 @@ pub const Block = struct {
 pub const Expression = struct { 
     expression: *const e.Expr,
 
-    pub fn accept(self: Expression, T: type, visitor: StmtVisitor(T)) T {
+    pub fn accept(self: Expression, T: type, visitor: Visitor(T)) T {
         return visitor.visitExpressionStmt(self);
     }
 
@@ -45,7 +46,7 @@ pub const Expression = struct {
 pub const Print = struct { 
     expression: *const e.Expr,
 
-    pub fn accept(self: Print, T: type, visitor: StmtVisitor(T)) T {
+    pub fn accept(self: Print, T: type, visitor: Visitor(T)) T {
         return visitor.visitPrintStmt(self);
     }
 
@@ -56,9 +57,9 @@ pub const Print = struct {
 
 pub const Var = struct { 
     name: Token,
-    initializer: ?*const e.Expr, // NOTE: not a null pointer, this is either null OR a pointer
+    initializer: ?*const e.Expr, 
 
-    pub fn accept(self: Var, T: type, visitor: StmtVisitor(T)) T {
+    pub fn accept(self: Var, T: type, visitor: Visitor(T)) T {
         return visitor.visitVarStmt(self);
     }
 

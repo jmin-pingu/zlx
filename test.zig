@@ -7,5 +7,6 @@ const Error = error{
 
 
 pub fn main() void {
-    std.debug.print("{!}", .{Error.new(Error.EqualityError)});
+    const a: u8 =1;
+    std.debug.print("outer: {d}\n", .{a});
 }

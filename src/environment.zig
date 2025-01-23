@@ -1,11 +1,14 @@
 const std = @import("std");
-const Literal = @import("literal.zig").Literal;
-const Error = @import("error.zig").Error;
-const err = @import("error.zig");
-const Token = @import("token.zig").Token;
-const RuntimeError = @import("error.zig").RuntimeError;
+
 const AutoHashMap = std.AutoHashMap;
 const StringHashMap = std.StringHashMap;
+
+const Literal = @import("token/literal.zig").Literal;
+const Token = @import("token/token.zig").Token;
+
+const err = @import("error.zig");
+const Error = @import("error.zig").Error;
+const RuntimeError = @import("error.zig").RuntimeError;
 
 pub const Environment = struct {
     values: StringHashMap(?Literal),
@@ -21,6 +24,18 @@ pub const Environment = struct {
     pub fn deinit(self: *Environment) void {
         self.values.deinit(); 
     }
+
+    // pub fn match(self: *Environment, name: Token) Error!void {
+    // recursively go up the parent hierarchy and rename
+    // this can be useful for ensuring no shadowing global var
+    // }
+    //
+    // EXAMPLE:
+    // var a = 1;
+    // {
+    //   var a = a + 2;
+    //   print a;
+    // }
 
     pub fn define(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) Error!void {
         // Issue: need to copy the data inside both value and name inside the hashmap.
