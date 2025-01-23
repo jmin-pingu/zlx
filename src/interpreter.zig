@@ -27,16 +27,11 @@ pub const Interpreter = struct {
     pub fn init(allocator: std.mem.Allocator) Error!Self {
         // when initializing the interpreter, the environment is the root environment
         return .{ 
-            .environment=try Environment.init(allocator, null),
+            .environment= try Environment.init(allocator, null),
             .allocator=allocator
         };
     }
 
-    // pub fn interpret(self: *Self, expr: *const e.Expr) Error!void {
-    //     const value = self.evaluate(expr) catch return Error.RuntimeError;
-    //     std.debug.print("{s}\n", .{value.to_string(self.allocator) catch return RuntimeError.AllocError});
-    // }
-    
     pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) Error!void {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
@@ -47,6 +42,7 @@ pub const Interpreter = struct {
                 }
                 return Error.RuntimeError;
             };
+            self.environment.print(self.allocator) catch return Error.AllocError;
         }     
     }
 
@@ -61,7 +57,6 @@ pub const Interpreter = struct {
         return stmt.accept(stmt_T, visitor);
     }
 
-    // interface initialization methods
     fn initExprVisitor(self: *Self) ExprVisitor(T) {
         return ExprVisitor(T).init(self);
     }
@@ -72,17 +67,29 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
+        // TODO: some potential issue here with strings
+        const enclosed_environment = self.allocator.create(Environment) catch return RuntimeError.AllocError;
+        enclosed_environment.* = self.environment;
+
+        // defer enclosed_environment.deinit();
+        // errdefer enclosed_environment.deinit();
+
+        const block_environment = Environment.init(
+            self.allocator, 
+           enclosed_environment 
+        ) catch return RuntimeError.AllocError;
+        
         _ = self.executeBlock(
             stmt.statements, 
-            Environment.init(self.allocator, &self.environment) catch return RuntimeError.AllocError
+            block_environment
         ) catch |runtime_err| return runtime_err;
     }
 
-    fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void {
-        const prev = self.environment;
+    fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
+        const parent_environment = self.environment; // move
         // Restore environment upon executing block
-        defer self.environment = prev;
-        errdefer self.environment = prev;
+        defer self.environment = parent_environment; 
+        errdefer self.environment = parent_environment;
 
         self.environment = environment;
         for (statements.items) |stmt| {
@@ -102,9 +109,13 @@ pub const Interpreter = struct {
     pub fn visitVarStmt(self: *Self, stmt: s.Var) stmt_T {
         const value = self.allocator.create(Literal) catch return RuntimeError.AllocError;
         if (stmt.initializer) |checked_initializer| {
+            // Instantiation
             value.* = try self.evaluate(checked_initializer);
+            self.environment.define(stmt.name, value.*, self.allocator) catch return RuntimeError.AllocError;
+        } else {
+            // Declaration
+            self.environment.define(stmt.name, null, self.allocator) catch return RuntimeError.AllocError;
         }
-        self.environment.define(stmt.name, value.*, self.allocator) catch return RuntimeError.AllocError;
     }
 
     // visitorExpr logic
@@ -115,7 +126,12 @@ pub const Interpreter = struct {
     }
 
     pub fn visitVarExpr(self: *Self, expr: *const e.Var) T {
-        return try self.environment.get(expr.name, self.allocator);
+        const optional = try self.environment.get(expr.name, self.allocator);
+        if (optional) |value| {
+            return value; 
+        } else {
+            return RuntimeError.UndeclaredVariable; 
+        }
     }
 
     pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
@@ -248,3 +264,6 @@ pub const Interpreter = struct {
     }
 };
 
+test "fix" {
+
+}
