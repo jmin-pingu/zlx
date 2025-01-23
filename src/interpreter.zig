@@ -98,7 +98,8 @@ pub const Interpreter = struct {
     }
 
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
-        _ = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
+        const value = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
+        std.debug.print("{s}\n", .{try value.to_string(self.allocator)});
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
