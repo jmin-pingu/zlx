@@ -107,7 +107,7 @@ pub const Scanner = struct {
                 if (std.ascii.isDigit(c)) {
                     self.number(); 
                 } else if (std.ascii.isAlphabetic(c) or c == '_') {
-                    self.identifier();
+                    try self.identifier();
                 } else {
                     const message = "syntax error";
                     return err_lib.error_msg(self.line, message, Error.SyntaxError, self.allocator);
@@ -116,14 +116,16 @@ pub const Scanner = struct {
         }
     }
 
-    fn identifier(self: *Scanner) void {
+    fn identifier(self: *Scanner) Error!void {
         while (self.peek() == '_' or std.ascii.isAlphanumeric(self.peek())) _ = self.advance();
         const text = self.source[self.start..self.current];
 
         if (keywords.get(text)) |ttype| {
             self.addToken(ttype, null);
         } else {
-            self.addToken(TokenType.IDENTIFIER, text);
+            const copied_text = try self.allocator.alloc(u8, text.len);
+            @memcpy(copied_text, text);
+            self.addToken(TokenType.IDENTIFIER, copied_text);
         }
     }
 
@@ -158,7 +160,10 @@ pub const Scanner = struct {
         _ = self.advance();
 
         const value = self.source[self.start+1..self.current-1];
-        self.addToken(TokenType.STRING, value);
+        const copied_value = try self.allocator.alloc(u8, value.len);
+        @memcpy(copied_value, value);
+
+        self.addToken(TokenType.STRING, copied_value);
     }
     // NOTE: one char lookahead
     fn peek(self: *Scanner) u8 {

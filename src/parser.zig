@@ -16,10 +16,10 @@ var unary_match = [_]TokenType{TokenType.BANG, TokenType.MINUS};
 var factor_match = [_]TokenType{TokenType.SLASH, TokenType.STAR};
 var comparison_match = [_]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
 var term_match = [_]TokenType{TokenType.MINUS, TokenType.PLUS};
-var print_match = [_]TokenType{TokenType.PRINT};
 var var_match = [_]TokenType{TokenType.VAR};
 
-
+// TODO: need to reason better about when to heap allocate
+// TODO: implement better error messaging in the parser
 pub const Parser = struct {
     tokens: ArrayList(Token),
     current: u64 = 0,
@@ -31,7 +31,7 @@ pub const Parser = struct {
     pub fn parse(self: *Parser) Error!ArrayList(Stmt) {
         var statements = ArrayList(Stmt).init(self.allocator);
         // TODO: do we need to dealloc the ArrayList(Stmt)
-        while (!self.reached_end()) {
+        while (!self.reachedEnd()) {
             try statements.append(try self.declaration());
         }
         return statements;
@@ -43,9 +43,12 @@ pub const Parser = struct {
     //
     // STATEMENT GRAMMAR RULES
     // program        -> declaration * EOF ; 
-    // declaration    -> varDecl | statement ;
-    // statement      -> exprStmt | printStmt ;
-    //
+    // declaration    -> varDecl 
+    //                   | statement ;
+    // statement      -> exprStmt 
+    //                   | printStmt
+    //                   | block ;
+    // block          -> "{" declaration* "}" ;
     fn declaration(self: *Parser) Error!Stmt {
         try {
             if (self.match(&var_match)) return try self.varDeclaration();
@@ -57,30 +60,41 @@ pub const Parser = struct {
     }
 
     fn varDeclaration(self: *Parser) Error!Stmt {
-        const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name\n");
+        const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
         var initializer: ?*const expr.Expr = null; 
         var equal_match = [_]TokenType{TokenType.EQUAL};
 
         // NOTE: there may some issues with the case of variable declaration v. initialization
         if (self.match(&equal_match)) initializer = try self.expression();
-        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration.\n");
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration");
         return s.Var.new(name, initializer);
     }
 
     fn statement(self: *Parser) Error!Stmt {
+        // TODO: add BLOCK_MATCH condition;
+        var print_match = [_]TokenType{TokenType.PRINT};
+        var brace_match = [_]TokenType{TokenType.LEFT_BRACE};
         if (self.match(&print_match)) return self.printStatement();
+        if (self.match(&brace_match)) return s.Block.new(try self.block());
         return self.expressionStatement();
+    }
+
+    fn block(self: *Parser) Error!ArrayList(Stmt) {
+        var statements = ArrayList(s.Stmt).init(self.allocator);
+        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) try statements.append(try self.declaration());
+        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect ';' after block");
+        return statements;
     }
 
     fn printStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
-        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value.\n");
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value");
         return s.Print.new(e);
     }
     
     fn expressionStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
-        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression.\n");
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression");
         return s.Expression.new(e);
     }
     
@@ -191,14 +205,14 @@ pub const Parser = struct {
         if (self.match(&false_match)) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
         if (self.match(&true_match)) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
         if (self.match(&nil_match)) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
-
+        // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate
         if (self.match(&literal_match)) return expr.Literal.new(self.previous().literal, self.allocator);
 
         if (self.match(&identifier_match)) return expr.Var.new(self.previous(), self.allocator);
         
         if (self.match(&paren_match)) {
             const e = try self.expression();
-            _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
+            _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression");
             return expr.Grouping.new(e, self.allocator);
         }
         return Error.ParseError;
@@ -207,7 +221,7 @@ pub const Parser = struct {
     // SYNCHRONIZER FOR RECURSIVE DESCENT PARSER
     fn synchronize(self: *Parser) void {
         self.advance();
-        while (!self.reached_end()) {
+        while (!self.reachedEnd()) {
             if (self.previous().ttype == TokenType.SEMICOLON) return;
 
             switch (self.peek().ttype) {
@@ -224,9 +238,9 @@ pub const Parser = struct {
 
         const error_token = self.peek();
         if (error_token.ttype == TokenType.EOF) {
-            std.debug.print("{d} at end{s}",.{error_token.line, message});
+            std.debug.print("[line: {d}, near end] {s}\n",.{error_token.line, message});
         } else {
-            std.debug.print("{d} at '{s}' {s}",.{error_token.line, error_token.lexeme, message});
+            std.debug.print("[line: {d}, near '{s}'] {s}\n",.{error_token.line, error_token.lexeme, message});
         }
         return Error.ParseError;
     }
@@ -243,16 +257,16 @@ pub const Parser = struct {
     }
  
     fn check(self: *Parser, ttype: TokenType) bool { 
-        if (self.reached_end()) return false;
+        if (self.reachedEnd()) return false;
         return self.peek().ttype == ttype;
     }
 
     fn advance(self: *Parser) Token { 
-        if (!self.reached_end()) self.current += 1;
+        if (!self.reachedEnd()) self.current += 1;
         return self.previous();
     }
 
-    fn reached_end(self: *Parser) bool { 
+    fn reachedEnd(self: *Parser) bool { 
         return self.peek().ttype == TokenType.EOF;
     }
 
@@ -284,21 +298,21 @@ test "private_functionality" {
     var parser = Parser.new(tokens, allocator);
     try std.testing.expectEqual(false, parser.check(TokenType.EOF));
     try std.testing.expectEqual(true, parser.check(TokenType.NUMBER));
-    try std.testing.expectEqual(false, parser.reached_end());
+    try std.testing.expectEqual(false, parser.reachedEnd());
     
     // Take a step
     try std.testing.expectEqual(Token.new(TokenType.NUMBER, "1", "1", 1), parser.advance());
     try std.testing.expectEqual(Token.new(TokenType.NUMBER, "1", "1", 1), parser.previous());
     try std.testing.expectEqual(Token.new(TokenType.STAR, "*", null, 1), parser.peek());
-    try std.testing.expectEqual(false, parser.reached_end());
+    try std.testing.expectEqual(false, parser.reachedEnd());
 
     // Take another step
     try std.testing.expectEqual(Token.new(TokenType.STAR, "*", null, 1), parser.advance());
     try std.testing.expectEqual(Token.new(TokenType.STAR, "*", null, 1), parser.previous());
     try std.testing.expectEqual(Token.new(TokenType.NUMBER, "2", "2", 1), parser.peek());
-    try std.testing.expectEqual(false, parser.reached_end());
+    try std.testing.expectEqual(false, parser.reachedEnd());
 
     // Step til end 
     _ = parser.advance();
-    try std.testing.expectEqual(true, parser.reached_end());
+    try std.testing.expectEqual(true, parser.reachedEnd());
 }

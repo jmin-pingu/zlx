@@ -3,8 +3,11 @@ const e = @import("expr.zig");
 const Token = @import("token.zig").Token;
 const StmtVisitor = @import("visitor.zig").StmtVisitor;
  
+const ArrayList = std.ArrayList;
+
 pub const Stmt= union(enum) {
     expression: Expression, 
+    block: Block, 
     print: Print, 
     @"var": Var, 
 
@@ -15,6 +18,18 @@ pub const Stmt= union(enum) {
     }
 };
  
+pub const Block = struct { 
+    statements: ArrayList(Stmt),
+
+    pub fn accept(self: Block, T: type, visitor: StmtVisitor(T)) T {
+        return visitor.visitBlockStmt(self);
+    }
+
+    pub fn new(statements: ArrayList(Stmt)) Stmt {
+        return Stmt{ .block=Block{.statements=statements} };
+    }
+};
+
 pub const Expression = struct { 
     expression: *const e.Expr,
 

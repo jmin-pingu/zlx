@@ -113,6 +113,7 @@ pub fn StmtVisitor(comptime T: type) type {
         visitExpressionStmtFn: *const fn (*anyopaque, stmt: s.Expression) T,
         visitPrintStmtFn: *const fn (*anyopaque, stmt: s.Print) T,
         visitVarStmtFn: *const fn (*anyopaque, stmt: s.Var) T,
+        visitBlockStmtFn: *const fn (*anyopaque, stmt: s.Block) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -135,6 +136,11 @@ pub fn StmtVisitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitVarStmt, .{self, stmt});
                 }
+
+                pub fn visitBlockStmtImpl(pointer: *anyopaque, stmt: s.Block) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitBlockStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -142,6 +148,7 @@ pub fn StmtVisitor(comptime T: type) type {
                 .visitExpressionStmtFn = gen.visitExpressionStmtImpl,
                 .visitPrintStmtFn = gen.visitPrintStmtImpl,
                 .visitVarStmtFn = gen.visitVarStmtImpl,
+                .visitBlockStmtFn = gen.visitBlockStmtImpl,
             };
         }
 
@@ -155,6 +162,10 @@ pub fn StmtVisitor(comptime T: type) type {
 
         pub inline fn visitVarStmt(self: Self, stmt: s.Var) T {
             return self.visitVarStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitBlockStmt(self: Self, stmt: s.Block) T {
+            return self.visitBlockStmtFn(self.ptr, stmt);
         }
     };
 }

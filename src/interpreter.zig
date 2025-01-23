@@ -25,8 +25,9 @@ pub const Interpreter = struct {
 
     // public facing methods 
     pub fn init(allocator: std.mem.Allocator) Error!Self {
+        // when initializing the interpreter, the environment is the root environment
         return .{ 
-            .environment=try Environment.init(allocator),
+            .environment=try Environment.init(allocator, null),
             .allocator=allocator
         };
     }
@@ -36,9 +37,16 @@ pub const Interpreter = struct {
     //     std.debug.print("{s}\n", .{value.to_string(self.allocator) catch return RuntimeError.AllocError});
     // }
     
-    pub fn interpret(self: *Self, statements: ArrayList(s.Stmt)) Error!void {
-        for (statements.items) |statement| {
-            self.execute(statement) catch return Error.RuntimeError;
+    pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) Error!void {
+        while (statements.items.len > 0) {
+            const statement = statements.orderedRemove(0);
+            self.execute(statement) catch |runtime_error| {
+                if (runtime_error == RuntimeError.AllocError) {
+                    // Do nothing upon allocation error
+                    err.runtime_error_msg(null, "allocation error at runtime", runtime_error, self.allocator) catch {};
+                }
+                return Error.RuntimeError;
+            };
         }     
     }
 
@@ -63,6 +71,25 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
+    pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
+        _ = self.executeBlock(
+            stmt.statements, 
+            Environment.init(self.allocator, &self.environment) catch return RuntimeError.AllocError
+        ) catch |runtime_err| return runtime_err;
+    }
+
+    fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void {
+        const prev = self.environment;
+        // Restore environment upon executing block
+        defer self.environment = prev;
+        errdefer self.environment = prev;
+
+        self.environment = environment;
+        for (statements.items) |stmt| {
+            try self.execute(stmt);
+        }
+    }
+
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
         _ = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
     }
@@ -83,12 +110,12 @@ pub const Interpreter = struct {
     // visitorExpr logic
     pub fn visitAssignExpr(self: *Self, expr: *const e.Assign) T {
         const value = try self.evaluate(expr.value);
-        self.environment.assign(expr.name, value, self.allocator) catch return RuntimeError.AllocError;
+        try self.environment.assign(expr.name, value, self.allocator);
         return value;
     }
 
     pub fn visitVarExpr(self: *Self, expr: *const e.Var) T {
-        return try self.environment.get(expr.name);
+        return try self.environment.get(expr.name, self.allocator);
     }
 
     pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
@@ -151,13 +178,28 @@ pub const Interpreter = struct {
             else => {
                 return RuntimeError.OperatorError;
             }
-        } catch |runtime_err| {
-            const err_msg = std.fmt.allocPrint(
-                self.allocator, 
-                "operator {s} is not a binary operator\n", 
-                .{expr.operator.lexeme}
-            ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+        } catch |runtime_err| switch (runtime_err) {
+            .OperatorError => {
+                std.debug.print("reached\n", .{});
+                const err_msg = std.fmt.allocPrint(
+                    self.allocator, 
+                    "operator {s} is not a binary operator", 
+                    .{expr.operator.lexeme}
+                ) catch return RuntimeError.AllocError;
+                std.debug.print("reached\n", .{});
+                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+            },
+            .OperandError => {
+                std.debug.print("reached\n", .{});
+                const err_msg = std.fmt.allocPrint(
+                    self.allocator, 
+                    "operands {any} and {any} are not compatible", 
+                    .{left, right}
+                ) catch return RuntimeError.AllocError;
+                std.debug.print("reached\n", .{});
+                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+            }, 
+            else => return runtime_err
         };
     }
 
@@ -184,15 +226,24 @@ pub const Interpreter = struct {
             else => {
                 return RuntimeError.OperatorError;
             }
-        } catch |runtime_err| { 
-            // TODO: change input to runtime_error_msg
-            const err_msg = std.fmt.allocPrint(
-                self.allocator, 
-                "operator {s} is not a unary operator\n", 
-                .{expr.operator.lexeme}
-            ) catch return RuntimeError.AllocError;
-
-            return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+        } catch |runtime_err| switch (runtime_err) {
+            .OperatorError => {
+                const err_msg = std.fmt.allocPrint(
+                    self.allocator, 
+                    "operator {s} is not a unary operator", 
+                    .{expr.operator.lexeme}
+                ) catch return RuntimeError.AllocError;
+                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+            },
+            .OperandError => {
+                const err_msg = std.fmt.allocPrint(
+                    self.allocator, 
+                    "operand {any} is not compatible with operator {s}", 
+                    .{right, expr.operator.lexeme}
+                ) catch return RuntimeError.AllocError;
+                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+            }, 
+            else => return runtime_err
         };
     }
 };

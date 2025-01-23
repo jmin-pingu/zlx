@@ -68,12 +68,12 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     var scanner = Scanner.new(source, allocator);
     const tokens = try scanner.scanTokens();
     var parser = Parser.new(tokens, allocator);
-    const statements  = parser.parse() catch return Error.ParseError;
+    var statements  = parser.parse() catch return Error.ParseError;
     // var Printer = AstPrinter.init(allocator);
     // const out = Printer.print(e) catch |err| return err;
     // std.debug.print("{s}\n", .{out});
     // NOTE: I'm assuming there is an issue with state here?
-    _ = interpreter.interpret(statements) catch |err| return err;
+    _ = interpreter.interpret(&statements) catch |err| return err;
     // Uncomment for debugging environment
     // interpreter.environment.print();
 

@@ -9,25 +9,34 @@ const StringHashMap = std.StringHashMap;
 
 pub const Environment = struct {
     values: StringHashMap(?Literal),
-
-    pub fn init(allocator: std.mem.Allocator) Error!Environment {
+    enclosing: ?*Environment = null,
+ 
+    pub fn init(allocator: std.mem.Allocator, enclosing: ?*Environment) Error!Environment {
         return Environment {
-            .values = StringHashMap(?Literal).init(allocator)
+            .values = StringHashMap(?Literal).init(allocator),
+            .enclosing = enclosing, 
         };
     }
 
-    pub fn define(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) Error!void {
+    pub fn define(self: *Environment, name: Token, value: Literal, allocator: std.mem.Allocator) Error!void {
+        // Issue: need to copy the data inside both value and name inside the hashmap.
         const copied_name = try allocator.alloc(u8, name.lexeme.len);
         @memcpy(copied_name, name.lexeme);
-
         try self.values.put(copied_name, value);
     }
 
-    pub fn get(self: Environment, name: Token) RuntimeError!Literal {
+    pub fn get(self: Environment, name: Token, allocator: std.mem.Allocator) RuntimeError!Literal {
         if (self.values.get(name.lexeme)) |value| {
             return value.?;
+        } else if (self.enclosing) |parent_environment| {
+            return parent_environment.get(name, allocator);
         } else {
-            return RuntimeError.UndefinedVariable;
+            const error_msg = std.fmt.allocPrint(
+                allocator, 
+                "cannot access undefined variable '{s}' \nNOTE: Declare or initializer '{s}' with `var`", 
+                .{name.lexeme, name.lexeme}
+            ) catch return RuntimeError.AllocError;
+            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndefinedVariable, allocator);
         }
     }
     
@@ -39,10 +48,9 @@ pub const Environment = struct {
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 
-                "Undefined variable {s}", 
-                .{name.lexeme}
+                "cannot assign undefined variable '{s}'. \nNOTE: Declare or initializer '{s}' with `var`", 
+                .{name.lexeme, name.lexeme}
             ) catch return RuntimeError.AllocError;
-
             return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndefinedVariable, allocator);
         }
     }
