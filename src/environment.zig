@@ -60,11 +60,13 @@ pub const Environment = struct {
         }
     }
     
-    pub fn assign(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) RuntimeError!void {
+    pub fn assign(self: *Environment, name: Token, value: Literal, allocator: std.mem.Allocator) RuntimeError!void {
         // const copied_name = try allocator.alloc(u8, name.len);
         // @memcpy(copied_name, name);
         if (self.values.get(name.lexeme)) |_| {
             self.values.put(name.lexeme, value) catch return RuntimeError.AllocError;
+        } else if (self.enclosing) |parent_environment| {
+            try parent_environment.assign(name, value, allocator);
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 

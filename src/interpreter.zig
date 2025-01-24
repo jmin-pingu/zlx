@@ -108,7 +108,6 @@ pub const Interpreter = struct {
 
     fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
         const parent_environment = self.environment; // move
-        // Restore environment upon executing block
         defer self.environment = parent_environment; 
         errdefer self.environment = parent_environment;
 

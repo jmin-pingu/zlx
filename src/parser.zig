@@ -14,7 +14,6 @@ const s = @import("stmt.zig");
 const Error = @import("error.zig").Error;
 
 // TODO: Add more granular errors for ParserErrors
-// TODO: make these arrays evaluated at compile time since we know these are FIXED sizes
 const equality_match = [2]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
 const unary_match = [2]TokenType{TokenType.BANG, TokenType.MINUS};
 const factor_match = [2]TokenType{TokenType.SLASH, TokenType.STAR};
@@ -47,16 +46,28 @@ pub const Parser = struct {
     //
     // STATEMENT GRAMMAR RULES
     // program        -> declaration * EOF ; 
+    //
     // declaration    -> varDecl 
     //                   | statement ;
+    //
+    // varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
+    //
     // statement      -> exprStmt
+    //                   | forStmt
     //                   | ifStmt
     //                   | printStmt
     //                   | whileStmt
     //                   | block ;
+    //
+    // forStmt        -> "for" "(" ( varDecl | exprStmt | ; )
+    //                   expression? ";"
+    //                   expression? ")" statement ;
+    //
     // whileStmt      -> "while" "(" expression ")" statement ;
+    //
     // ifStmt         -> if" "(" expression ")" statement
     //                   ( "else" statement )? ;  
+    //
     // block          -> "{" declaration* "}" ;
     //
     
@@ -74,18 +85,62 @@ pub const Parser = struct {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
         var initializer: ?*const expr.Expr = null; 
 
-        // NOTE: there may some issues with the case of variable declaration v. initialization
         if (self.match(1, [1]TokenType{TokenType.EQUAL})) initializer = try self.expression();
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration");
         return s.Var.new(name, initializer);
     }
 
     fn statement(self: *Parser) Error!Stmt {
+        if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
         if (self.match(1, [1]TokenType{TokenType.WHILE})) return self.whileStatement();
         if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.block());
         return self.expressionStatement();
+    }
+
+    fn forStatement(self: *Parser) Error!Stmt {
+        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'");
+        var initializer: ?Stmt = undefined;
+        if (self.match(1, [1]TokenType{TokenType.SEMICOLON})) {
+            initializer = null;
+        } else if (self.match(1, [1]TokenType{TokenType.VAR})) {
+            initializer = try self.varDeclaration();
+        } else {
+            initializer = try self.expressionStatement();
+        }
+
+        var condition: ?*const expr.Expr = null;
+        if (!self.check(TokenType.SEMICOLON)) {
+            condition = try self.expression();
+        } 
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition");
+
+        var increment: ?*const expr.Expr = null;
+        if (!self.check(TokenType.RIGHT_PAREN)) {
+            increment = try self.expression();
+        }         
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
+        var body = try self.statement();
+
+        if (increment != null) {
+            var statements = ArrayList(Stmt).init(self.allocator);
+
+            statements.append(body) catch return Error.AllocError;
+            statements.append(s.Expression.new(increment.?)) catch return Error.AllocError;
+            body = s.Block.new(statements);
+        }
+
+        if (condition == null) condition = expr.Literal.new(LiteralValue{.Bool = true}, self.allocator);
+        body = try s.While.new(condition.?, body, self.allocator);
+
+        if (initializer != null) {
+            var statements = ArrayList(Stmt).init(self.allocator);
+            statements.append(initializer.?) catch return Error.AllocError;
+            statements.append(body) catch return Error.AllocError;
+            body = s.Block.new(statements);
+        }
+        return body;
     }
 
     fn whileStatement(self: *Parser) Error!Stmt {
