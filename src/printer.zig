@@ -21,7 +21,7 @@ pub const AstPrinter = struct {
     }
 
     /// 
-    pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
+    pub fn visitBinaryExpr(self: *Self, expr: e.Binary) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 2) catch return Error.AllocError;
         parsed_expr[0] = expr.left;
         parsed_expr[1] = expr.right;
@@ -29,14 +29,14 @@ pub const AstPrinter = struct {
     }
 
     /// 
-    pub fn visitGroupingExpr(self: *Self, expr: *const e.Grouping) T {
+    pub fn visitGroupingExpr(self: *Self, expr: e.Grouping) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 1)  catch return Error.AllocError;
         parsed_expr[0] = expr.expression;
         return try self.parenthesize("group", parsed_expr);
     }
 
     /// 
-    pub fn visitLiteralExpr(self: *Self, expr: *const e.Literal) T {
+    pub fn visitLiteralExpr(self: *Self, expr: e.Literal) T {
         switch (expr.value) {
             .Number => |value| {
                 return std.fmt.allocPrint(
@@ -66,7 +66,7 @@ pub const AstPrinter = struct {
     }
 
     /// 
-    pub fn visitUnaryExpr(self: *Self, expr: *const e.Unary) T {
+    pub fn visitUnaryExpr(self: *Self, expr: e.Unary) T {
         var parsed_expr = self.allocator.alloc(*const Expr, 1) catch return Error.AllocError;
         parsed_expr[0] = expr.right;
         return try self.parenthesize(expr.operator.lexeme, parsed_expr);

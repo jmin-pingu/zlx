@@ -122,7 +122,9 @@ pub const Parser = struct {
     // EXPRESSION GRAMMAR RULES
     // expression     -> assignment ;
     // assignment     -> IDENTIFIER "=" assignment 
-    //                   | equality ;
+    //                   | logic_or 
+    // logic_or       -> logic_and ( "or" logic_and )* ;
+    // logic_and      -> equality ( "and" equality )*;
     // equality       -> comparison ( ( "!=" | "==" ) comparison )* ;
     // comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
     // term           -> factor ( ( "-" | "+" ) factor )* ;
@@ -131,14 +133,13 @@ pub const Parser = struct {
     //                -> | primary ;
     // primary        -> NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
-
     fn expression(self: *Parser) Error!*const expr.Expr {
         return try self.assignment();
     }
 
     fn assignment(self: *Parser) Error!*const expr.Expr {
         // First naively evaluate the token before the '='
-        const greedy_expr = try self.equality();
+        const greedy_expr = try self.logic_or();
         var equals: Token = undefined;
         var value: *const expr.Expr = undefined;
 
@@ -160,6 +161,28 @@ pub const Parser = struct {
             }
         }
         return greedy_expr;
+    }
+
+    fn logic_or(self: *Parser) Error!*const expr.Expr {
+        var left_expr = try self.logic_and();
+
+        while (self.match(1, [1]TokenType{TokenType.OR})) {
+            const operator = self.previous();
+            const right = try self.logic_and();
+            left_expr = expr.Logical.new(left_expr, operator, right, self.allocator);
+        }
+        return left_expr;
+    }
+
+    fn logic_and(self: *Parser) Error!*const expr.Expr { 
+        var left_expr = try self.equality();
+
+        while (self.match(1, [1]TokenType{TokenType.AND})) {
+            const operator = self.previous();
+            const right = try self.equality();
+            left_expr = expr.Logical.new(left_expr, operator, right, self.allocator);
+        }
+        return left_expr;
     }
 
     fn equality(self: *Parser) Error!*const expr.Expr {

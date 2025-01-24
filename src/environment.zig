@@ -21,24 +21,16 @@ pub const Environment = struct {
         };
     }
 
+    // TODO: reason about whether it makes sense to deinit the 
     pub fn deinit(self: *Environment) void {
         self.values.deinit(); 
+        // if (self.enclosing) |enclosing| {
+        //     enclosing.deinit(); 
+        // }
     }
 
-    // pub fn match(self: *Environment, name: Token) Error!void {
-    // recursively go up the parent hierarchy and rename
-    // this can be useful for ensuring no shadowing global var
-    // }
-    //
-    // EXAMPLE:
-    // var a = 1;
-    // {
-    //   var a = a + 2;
-    //   print a;
-    // }
-
     pub fn define(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) Error!void {
-        // Issue: need to copy the data inside both value and name inside the hashmap.
+        // ISSUE: need to copy the data inside both value and name inside the hashmap.
         const copied_name = try allocator.alloc(u8, name.lexeme.len);
         @memcpy(copied_name, name.lexeme);
         try self.values.put(copied_name, value);

@@ -27,6 +27,7 @@ pub const Interpreter = struct {
     allocator: std.mem.Allocator,
     environment: Environment,
 
+    // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
     // public facing methods 
     pub fn init(allocator: std.mem.Allocator) Error!Self {
         // when initializing the interpreter, the environment is the root environment
@@ -83,9 +84,6 @@ pub const Interpreter = struct {
         const enclosed_environment = self.allocator.create(Environment) catch return RuntimeError.AllocError;
         enclosed_environment.* = self.environment;
 
-        // defer enclosed_environment.deinit();
-        // errdefer enclosed_environment.deinit();
-
         const block_environment = Environment.init(
             self.allocator, 
            enclosed_environment 
@@ -132,13 +130,13 @@ pub const Interpreter = struct {
     }
 
     // visitorExpr logic
-    pub fn visitAssignExpr(self: *Self, expr: *const e.Assign) T {
+    pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
         const value = try self.evaluate(expr.value);
         try self.environment.assign(expr.name, value, self.allocator);
         return value;
     }
 
-    pub fn visitVarExpr(self: *Self, expr: *const e.Var) T {
+    pub fn visitVarExpr(self: *Self, expr: e.Var) T {
         const optional = try self.environment.get(expr.name, self.allocator);
         if (optional) |value| {
             return value; 
@@ -147,10 +145,18 @@ pub const Interpreter = struct {
         }
     }
 
-    pub fn visitBinaryExpr(self: *Self, expr: *const e.Binary) T {
-        // Now evaluate should return a RuntimeError
+    pub fn visitLogicalExpr(self: *Self, expr: e.Logical) T {
         const left = try self.evaluate(expr.left);
-        // error_msg(line_number: usize, message: []const u8, err: Error, allocator: std.mem.Allocator) Error {
+        switch (expr.operator.ttype) {
+            TokenType.OR => if (left.isTruthy()) return left,
+            TokenType.AND => if (!left.isTruthy()) return left, 
+            else => unreachable
+        }
+        return self.evaluate(expr.right);
+    }
+
+    pub fn visitBinaryExpr(self: *Self, expr: e.Binary) T {
+        const left = try self.evaluate(expr.left);
         const right = try self.evaluate(expr.right);
 
         return switch (expr.operator.ttype) {
@@ -168,7 +174,6 @@ pub const Interpreter = struct {
                 return Literal{ .Number = left.Number * right.Number};
             },
             TokenType.PLUS => {
-                // Check if both string OR both numeric
                 if (!left.same_tags(right, Tag.String) and !left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
                 if (left.check_tag(Tag.String)) {
                     const new_string = std.fmt.allocPrint(
@@ -232,16 +237,16 @@ pub const Interpreter = struct {
         };
     }
 
-    pub fn visitGroupingExpr(self: *Self, expr: *const e.Grouping) T {
+    pub fn visitGroupingExpr(self: *Self, expr: e.Grouping) T {
         return self.evaluate(expr.expression);
     }
 
-    pub fn visitLiteralExpr(self: *Self, expr: *const e.Literal) T {
+    pub fn visitLiteralExpr(self: *Self, expr: e.Literal) T {
         _ = self;
         return expr.value;
     }
 
-    pub fn visitUnaryExpr(self: *Self, expr: *const e.Unary) T {
+    pub fn visitUnaryExpr(self: *Self, expr: e.Unary) T {
         const right = try self.evaluate(expr.right);
         return switch (expr.operator.ttype) {
             TokenType.MINUS => {
