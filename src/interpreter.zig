@@ -28,6 +28,7 @@ pub const Interpreter = struct {
     environment: Environment,
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
+    
     // public facing methods 
     pub fn init(allocator: std.mem.Allocator) Error!Self {
         // when initializing the interpreter, the environment is the root environment
@@ -52,6 +53,10 @@ pub const Interpreter = struct {
         }     
     }
 
+    pub fn deinit(self: *Self) void {
+        _ = self;
+    }
+
     // private methods
     fn evaluate(self: *Self, expr: *const e.Expr) T {
         const visitor = self.initExprVisitor();
@@ -72,6 +77,12 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
+    pub fn visitWhileStmt(self: *Self, stmt: s.While) stmt_T {
+        while ((try self.evaluate(stmt.condition)).isTruthy()) {
+            try self.execute(stmt.body.*);
+        }
+    }
+
     pub fn visitIfStmt(self: *Self, stmt: s.If) stmt_T {
         if ((try self.evaluate(stmt.condition)).isTruthy()) {
             try self.execute(stmt.then_branch.*);
@@ -109,7 +120,10 @@ pub const Interpreter = struct {
 
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
         const value = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
-        std.debug.print("{s}\n", .{try value.to_string(self.allocator)});
+        switch (stmt.expression.*) {
+            .assign => {},
+            else => std.debug.print("{s}\n", .{try value.to_string(self.allocator)})
+        }
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
@@ -139,9 +153,9 @@ pub const Interpreter = struct {
     pub fn visitVarExpr(self: *Self, expr: e.Var) T {
         const optional = try self.environment.get(expr.name, self.allocator);
         if (optional) |value| {
-            return value; 
+            return value;
         } else {
-            return RuntimeError.UndeclaredVariable; 
+            return RuntimeError.UninitializedVariable;
         }
     }
 

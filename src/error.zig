@@ -14,6 +14,7 @@ pub const Error = error{
     GenericError,
     AllocError,
     AssignmentError,
+    VariableShadow,
 };
 
 const SyntaxError = error {};
@@ -23,7 +24,7 @@ pub const RuntimeError = error {
     OperandError,
     OperatorError,
     AllocError,
-    UndefinedVariable,
+    UninitializedVariable,
     UndeclaredVariable,
 };
 

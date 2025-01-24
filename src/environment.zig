@@ -43,20 +43,20 @@ pub const Environment = struct {
             } else {
                 const error_msg = std.fmt.allocPrint(
                     allocator, 
-                    "the variable '{s}' is undeclared", 
+                    "the variable '{s}' is uninitialized", 
                     .{name.lexeme}
                 ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
+                return err.runtime_error_msg(name.line, error_msg, RuntimeError.UninitializedVariable, allocator);
             }
         } else if (self.enclosing) |parent_environment| {
             return parent_environment.get(name, allocator);
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 
-                "cannot access undefined variable '{s}' \nNOTE: Declare or initializer '{s}' with `var`", 
+                "cannot access declared variable '{s}' \nNOTE: Declare or initialize '{s}' with `var`", 
                 .{name.lexeme, name.lexeme}
             ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndefinedVariable, allocator);
+            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
         }
     }
     
@@ -68,10 +68,10 @@ pub const Environment = struct {
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 
-                "cannot assign undefined variable '{s}'. \nNOTE: Declare or initializer '{s}' with `var`", 
+                "cannot assign undeclared variable '{s}'. \nNOTE: Declare or initialize '{s}' with `var`", 
                 .{name.lexeme, name.lexeme}
             ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndefinedVariable, allocator);
+            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
         }
     }
 

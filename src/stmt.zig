@@ -13,6 +13,7 @@ pub const Stmt= union(enum) {
     print: Print, 
     @"var": Var, 
     @"if": If,
+    @"while": While,
 
     pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
@@ -21,6 +22,22 @@ pub const Stmt= union(enum) {
     }
 };
  
+
+pub const While = struct { 
+    condition: *const Expr,
+    body: *const Stmt,
+
+    pub fn accept(self: While, T: type, visitor: Visitor(T)) T {
+        return visitor.visitWhileStmt(self);
+    }
+
+    pub fn new(condition: *const Expr, body: Stmt, allocator: std.mem.Allocator) Error!Stmt {
+        const new_body = allocator.create(Stmt) catch return Error.AllocError;
+        new_body.* = body;
+        return Stmt{ .@"while"=While{.condition=condition, .body = new_body} };
+    }
+};
+
 pub const If = struct { 
     condition: *const Expr, 
     then_branch: *const Stmt,
@@ -119,6 +136,7 @@ pub fn Visitor(comptime T: type) type {
         visitVarStmtFn: *const fn (*anyopaque, stmt: Var) T,
         visitBlockStmtFn: *const fn (*anyopaque, stmt: Block) T,
         visitIfStmtFn: *const fn (*anyopaque, stmt: If) T,
+        visitWhileStmtFn: *const fn (*anyopaque, stmt: While) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -151,6 +169,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitIfStmt, .{self, stmt});
                 }
+
+                pub fn visitWhileStmtImpl(pointer: *anyopaque, stmt: While) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitWhileStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -160,6 +183,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitVarStmtFn = gen.visitVarStmtImpl,
                 .visitBlockStmtFn = gen.visitBlockStmtImpl,
                 .visitIfStmtFn = gen.visitIfStmtImpl,
+                .visitWhileStmtFn = gen.visitWhileStmtImpl,
             };
         }
 
@@ -181,6 +205,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitIfStmt(self: Self, stmt: If) T {
             return self.visitIfStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitWhileStmt(self: Self, stmt: While) T {
+            return self.visitWhileStmtFn(self.ptr, stmt);
         }
     };
 }

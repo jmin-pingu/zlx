@@ -52,7 +52,9 @@ pub const Parser = struct {
     // statement      -> exprStmt
     //                   | ifStmt
     //                   | printStmt
+    //                   | whileStmt
     //                   | block ;
+    // whileStmt      -> "while" "(" expression ")" statement ;
     // ifStmt         -> if" "(" expression ")" statement
     //                   ( "else" statement )? ;  
     // block          -> "{" declaration* "}" ;
@@ -81,8 +83,17 @@ pub const Parser = struct {
     fn statement(self: *Parser) Error!Stmt {
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
+        if (self.match(1, [1]TokenType{TokenType.WHILE})) return self.whileStatement();
         if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.block());
         return self.expressionStatement();
+    }
+
+    fn whileStatement(self: *Parser) Error!Stmt {
+        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'");
+        const condition = try self.expression();
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
+        const body = try self.statement();
+        return s.While.new(condition, body, self.allocator);
     }
 
     fn block(self: *Parser) Error!ArrayList(Stmt) {
