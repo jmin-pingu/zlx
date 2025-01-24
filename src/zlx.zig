@@ -8,7 +8,7 @@ const Interpreter = @import("interpreter.zig").Interpreter;
 
 const Error = @import("error.zig").Error;
 
-const expr = @import("expr/expr.zig");
+const expr = @import("expr.zig");
 
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user

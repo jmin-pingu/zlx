@@ -7,11 +7,11 @@ const TokenType = @import("token/token_type.zig").TokenType;
 const Literal= @import("token/literal.zig").Literal;
 const Tag = @import("token/literal.zig").Tag;
 
-const e= @import("expr/expr.zig");
-const ExprVisitor = @import("expr/visitor.zig").ExprVisitor;
+const e= @import("expr.zig");
+const ExprVisitor = @import("expr.zig").Visitor;
 
-const s = @import("stmt/stmt.zig");
-const StmtVisitor = @import("stmt/visitor.zig").StmtVisitor;
+const s = @import("stmt.zig");
+const StmtVisitor = @import("stmt.zig").Visitor;
 
 const Environment = @import("environment.zig").Environment;
 
@@ -71,8 +71,15 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
+    pub fn visitIfStmt(self: *Self, stmt: s.If) stmt_T {
+        if ((try self.evaluate(stmt.condition)).isTruthy()) {
+            try self.execute(stmt.then_branch.*);
+        } else if (stmt.else_branch) |else_branch| {
+            try self.execute(else_branch.*);
+        }     
+    }
+
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
-        // TODO: some potential issue here with strings
         const enclosed_environment = self.allocator.create(Environment) catch return RuntimeError.AllocError;
         enclosed_environment.* = self.environment;
 
@@ -243,7 +250,7 @@ pub const Interpreter = struct {
                 return Literal{ .Number = -right.Number};
             },
             TokenType.BANG => {
-                return Literal{ .Bool = !right.is_truthy()};
+                return Literal{ .Bool = !right.isTruthy()};
             },
             else => {
                 return RuntimeError.OperatorError;

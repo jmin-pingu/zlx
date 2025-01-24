@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const e= @import("expr/expr.zig");
-const Expr= @import("expr/expr.zig").Expr;
-const ExprVisitor= @import("expr/visitor.zig").ExprVisitor;
+const e= @import("expr.zig");
+const Expr= @import("expr.zig").Expr;
+const ExprVisitor= @import("expr.zig").Visitor;
  
 const Error= @import("error.zig").Error;
 

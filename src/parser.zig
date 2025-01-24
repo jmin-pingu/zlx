@@ -6,10 +6,10 @@ const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
 const LiteralValue = @import("token/literal.zig").Literal;
 
-const expr = @import("expr/expr.zig");
+const expr = @import("expr.zig");
 
-const Stmt = @import("stmt/stmt.zig").Stmt;
-const s = @import("stmt/stmt.zig");
+const Stmt = @import("stmt.zig").Stmt;
+const s = @import("stmt.zig");
 
 const Error = @import("error.zig").Error;
 
@@ -79,6 +79,7 @@ pub const Parser = struct {
     }
 
     fn statement(self: *Parser) Error!Stmt {
+        if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
         if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.block());
         return self.expressionStatement();
@@ -89,6 +90,19 @@ pub const Parser = struct {
         while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) try statements.append(try self.declaration());
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect ';' after block");
         return statements;
+    }
+
+    fn ifStatement(self: *Parser) Error!Stmt {
+        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
+        const condition = try self.expression();
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
+        
+        const then_branch = try self.statement();
+        var else_branch: ?Stmt = null;
+        if (self.match(1, [1]TokenType{TokenType.ELSE})) {
+            else_branch = try self.statement();
+        }
+        return try s.If.new(condition, then_branch, else_branch, self.allocator);
     }
 
     fn printStatement(self: *Parser) Error!Stmt {

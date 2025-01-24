@@ -22,7 +22,7 @@ pub const Literal = union(Tag){
         return self.check_tag(tag) and other.check_tag(tag);
     }
 
-    pub fn is_truthy(self: Literal) bool {
+    pub fn isTruthy(self: Literal) bool {
         if (self.check_tag(Tag.Nil)) {
             return false;
         } else if (self.check_tag(Tag.Bool)) {
