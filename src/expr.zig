@@ -14,7 +14,7 @@ pub const Expr= union(enum) {
     assign: Assign,
     logical: Logical,
 
-    pub fn accept(self: *const Expr, T: type, visitor: Visitor(T)) T {
+    pub fn accept(self: *Expr, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
             inline else => |case| return case.accept(T, visitor),
         }
@@ -24,16 +24,16 @@ pub const Expr= union(enum) {
 // NOTE: does it make for us to operate on `*const Expr` instead of `Expr`
 //
 pub const Logical = struct {
-    left: *const Expr,
+    left: *Expr,
     operator: Token,
-    right: *const Expr,
+    right: *Expr,
 
     pub fn new(
-        left: *const Expr, 
+        left: *Expr, 
         operator: Token, 
-        right: *const Expr, 
+        right: *Expr, 
         allocator: std.mem.Allocator
-    ) *const Expr {
+    ) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr { 
             .logical= Logical{ 
@@ -49,15 +49,15 @@ pub const Logical = struct {
 };
 
 pub const Binary = struct {
-    left: *const Expr,
+    left: *Expr,
     operator: Token,
-    right: *const Expr,
+    right: *Expr,
     pub fn new(
-        left: *const Expr, 
+        left: *Expr, 
         operator: Token, 
-        right: *const Expr, 
+        right: *Expr, 
         allocator: std.mem.Allocator
-    ) *const Expr {
+    ) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr { 
             .binary= Binary{ 
@@ -73,11 +73,11 @@ pub const Binary = struct {
 };
 
 pub const Grouping = struct {
-    expression: *const Expr,
+    expression: *Expr,
     pub fn new(
-        expression: *const Expr, 
+        expression: *Expr, 
         allocator: std.mem.Allocator
-    ) *const Expr {
+    ) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .grouping= Grouping{ 
@@ -95,7 +95,7 @@ pub const Grouping = struct {
 pub const Literal = struct {
     // NOTE: naming, I really don't like having LiteralValue in token.zig 
     value: LiteralValue,
-    pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *const Expr {
+    pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .literal=Literal{ 
@@ -112,8 +112,8 @@ pub const Literal = struct {
 
 pub const Unary = struct {
     operator: Token,
-    right: *const Expr,
-    pub fn new(operator: Token, right: *const Expr, allocator: std.mem.Allocator) *const Expr {
+    right: *Expr,
+    pub fn new(operator: Token, right: *Expr, allocator: std.mem.Allocator) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .unary=Unary{ 
@@ -130,7 +130,7 @@ pub const Unary = struct {
 
 pub const Var = struct {
     name: Token,
-    pub fn new(name: Token, allocator: std.mem.Allocator) *const Expr {
+    pub fn new(name: Token, allocator: std.mem.Allocator) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .@"var"=Var{ 
@@ -147,8 +147,8 @@ pub const Var = struct {
 
 pub const Assign = struct {
     name: Token,
-    value: *const Expr,
-    pub fn new(name: Token, value: *const Expr, allocator: std.mem.Allocator) *const Expr {
+    value: *Expr,
+    pub fn new(name: Token, value: *Expr, allocator: std.mem.Allocator) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .assign=Assign{ 

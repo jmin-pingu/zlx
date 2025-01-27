@@ -14,24 +14,38 @@ pub const Stmt= union(enum) {
     @"var": Var, 
     @"if": If,
     @"while": While,
+    @"break": Break,
 
     pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
-            inline else => |*case| return case.accept(T, visitor),
+            inline else => |case| return case.accept(T, visitor),
         }
     }
 };
  
 
+pub const Break = struct { 
+    associated_condition: *Expr,
+
+    pub fn accept(self: Break, T: type, visitor: Visitor(T)) T {
+        return visitor.visitBreakStmt(self);
+    }
+
+    pub fn new(associated_condition: *Expr) Error!Stmt {
+        return Stmt{ .@"break"=Break{.associated_condition =associated_condition} };
+    }
+};
+
+
 pub const While = struct { 
-    condition: *const Expr,
-    body: *const Stmt,
+    condition: *Expr,
+    body: *Stmt,
 
     pub fn accept(self: While, T: type, visitor: Visitor(T)) T {
         return visitor.visitWhileStmt(self);
     }
 
-    pub fn new(condition: *const Expr, body: Stmt, allocator: std.mem.Allocator) Error!Stmt {
+    pub fn new(condition: *Expr, body: Stmt, allocator: std.mem.Allocator) Error!Stmt {
         const new_body = allocator.create(Stmt) catch return Error.AllocError;
         new_body.* = body;
         return Stmt{ .@"while"=While{.condition=condition, .body = new_body} };
@@ -39,15 +53,15 @@ pub const While = struct {
 };
 
 pub const If = struct { 
-    condition: *const Expr, 
-    then_branch: *const Stmt,
-    else_branch: ?*const Stmt,
+    condition: *Expr, 
+    then_branch: *Stmt,
+    else_branch: ?*Stmt,
 
     pub fn accept(self: If, T: type, visitor: Visitor(T)) T {
         return visitor.visitIfStmt(self);
     }
 
-    pub fn new(condition: *const Expr, then_branch: Stmt, else_branch: ?Stmt, allocator: std.mem.Allocator) Error!Stmt {
+    pub fn new(condition: *Expr, then_branch: Stmt, else_branch: ?Stmt, allocator: std.mem.Allocator) Error!Stmt {
         const then_b = allocator.create(Stmt) catch return Error.AllocError;
 
         then_b.* = then_branch;
@@ -87,38 +101,38 @@ pub const Block = struct {
 };
 
 pub const Expression = struct { 
-    expression: *const e.Expr,
+    expression: *e.Expr,
 
     pub fn accept(self: Expression, T: type, visitor: Visitor(T)) T {
         return visitor.visitExpressionStmt(self);
     }
 
-    pub fn new(expr: *const e.Expr) Stmt {
+    pub fn new(expr: *e.Expr) Stmt {
         return Stmt{ .expression=Expression{.expression=expr} };
     }
 };
 
 pub const Print = struct { 
-    expression: *const e.Expr,
+    expression: *e.Expr,
 
     pub fn accept(self: Print, T: type, visitor: Visitor(T)) T {
         return visitor.visitPrintStmt(self);
     }
 
-    pub fn new(expr: *const e.Expr) Stmt {
+    pub fn new(expr: *e.Expr) Stmt {
         return Stmt{ .print=Print{.expression=expr} };
     }
 };
 
 pub const Var = struct { 
     name: Token,
-    initializer: ?*const e.Expr, 
+    initializer: ?*e.Expr, 
 
     pub fn accept(self: Var, T: type, visitor: Visitor(T)) T {
         return visitor.visitVarStmt(self);
     }
 
-    pub fn new(name: Token, initializer: ?*const e.Expr) Stmt {
+    pub fn new(name: Token, initializer: ?*e.Expr) Stmt {
         return Stmt{ .@"var"=Var{.name=name, .initializer=initializer} };
     }
 };
@@ -137,6 +151,7 @@ pub fn Visitor(comptime T: type) type {
         visitBlockStmtFn: *const fn (*anyopaque, stmt: Block) T,
         visitIfStmtFn: *const fn (*anyopaque, stmt: If) T,
         visitWhileStmtFn: *const fn (*anyopaque, stmt: While) T,
+        visitBreakStmtFn: *const fn (*anyopaque, stmt: Break) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -174,6 +189,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitWhileStmt, .{self, stmt});
                 }
+
+                pub fn visitBreakStmtImpl(pointer: *anyopaque, stmt: Break) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitBreakStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -184,6 +204,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitBlockStmtFn = gen.visitBlockStmtImpl,
                 .visitIfStmtFn = gen.visitIfStmtImpl,
                 .visitWhileStmtFn = gen.visitWhileStmtImpl,
+                .visitBreakStmtFn = gen.visitBreakStmtImpl,
             };
         }
 
@@ -209,6 +230,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitWhileStmt(self: Self, stmt: While) T {
             return self.visitWhileStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitBreakStmt(self: Self, stmt: Break) T {
+            return self.visitBreakStmtFn(self.ptr, stmt);
         }
     };
 }

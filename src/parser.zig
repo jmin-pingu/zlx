@@ -12,6 +12,7 @@ const Stmt = @import("stmt.zig").Stmt;
 const s = @import("stmt.zig");
 
 const Error = @import("error.zig").Error;
+const err = @import("error.zig");
 
 // TODO: Add more granular errors for ParserErrors
 const equality_match = [2]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
@@ -31,6 +32,7 @@ pub const Parser = struct {
     pub fn new(tokens: ArrayList(Token), allocator: std.mem.Allocator) Parser {
         return Parser{ .tokens = tokens, .allocator = allocator};
     }
+
     pub fn parse(self: *Parser) Error!ArrayList(Stmt) {
         var statements = ArrayList(Stmt).init(self.allocator);
         // TODO: do we need to dealloc the ArrayList(Stmt)
@@ -58,18 +60,33 @@ pub const Parser = struct {
     //                   | printStmt
     //                   | whileStmt
     //                   | block ;
-    //
+    //                      
     // forStmt        -> "for" "(" ( varDecl | exprStmt | ; )
     //                   expression? ";"
-    //                   expression? ")" statement ;
+    //                   expression? ")" break_statement ;
     //
-    // whileStmt      -> "while" "(" expression ")" statement ;
+    // whileStmt      -> "while" "(" expression ")" break_statement ;
     //
-    // ifStmt         -> if" "(" expression ")" statement
+    // breakStatement -> break 
+    //                   | exprStmt
+    //                   | forStmt
+    //                   | breakIfStmt
+    //                   | printStmt
+    //                   | whileStm 
+    //                   | breakBlock ;
+    //
+    // breakIfStmt    -> if "(" expression ")" breakStatement
+    //                   ( "else" breakStatement )? ;  
+    //
+    // breakBlock     -> "{" breakDecl* "}" ;
+    //
+    // breakDecl      -> varDecl 
+    //                   | breakStatement ;
+    //
+    // ifStmt         -> if "(" expression ")" statement
     //                   ( "else" statement )? ;  
     //
     // block          -> "{" declaration* "}" ;
-    //
     
     fn declaration(self: *Parser) Error!Stmt {
         try {
@@ -83,7 +100,7 @@ pub const Parser = struct {
 
     fn varDeclaration(self: *Parser) Error!Stmt {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
-        var initializer: ?*const expr.Expr = null; 
+        var initializer: ?*expr.Expr = null; 
 
         if (self.match(1, [1]TokenType{TokenType.EQUAL})) initializer = try self.expression();
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration");
@@ -91,6 +108,7 @@ pub const Parser = struct {
     }
 
     fn statement(self: *Parser) Error!Stmt {
+        if (self.match(1, [1]TokenType{TokenType.BREAK})) return err.error_msg(self.peek().line, "break not nested within control flow", Error.SyntaxError, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
@@ -110,18 +128,20 @@ pub const Parser = struct {
             initializer = try self.expressionStatement();
         }
 
-        var condition: ?*const expr.Expr = null;
+        var condition: ?*expr.Expr = null;
         if (!self.check(TokenType.SEMICOLON)) {
             condition = try self.expression();
         } 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition");
 
-        var increment: ?*const expr.Expr = null;
+        var increment: ?*expr.Expr = null;
         if (!self.check(TokenType.RIGHT_PAREN)) {
             increment = try self.expression();
         }         
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
-        var body = try self.statement();
+
+        condition = expr.Literal.new(LiteralValue{.Bool = true}, self.allocator);
+        var body = try self.breakStatement(condition.?);
 
         if (increment != null) {
             var statements = ArrayList(Stmt).init(self.allocator);
@@ -131,7 +151,6 @@ pub const Parser = struct {
             body = s.Block.new(statements);
         }
 
-        if (condition == null) condition = expr.Literal.new(LiteralValue{.Bool = true}, self.allocator);
         body = try s.While.new(condition.?, body, self.allocator);
 
         if (initializer != null) {
@@ -147,8 +166,59 @@ pub const Parser = struct {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'");
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
-        const body = try self.statement();
+        const body = try self.breakStatement(condition);
         return s.While.new(condition, body, self.allocator);
+    }
+
+    fn breakStatement(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
+        // TODO: issue with identifying multiple break's per block
+        if (self.match(1, [1]TokenType{TokenType.BREAK}) and self.match(1, [1]TokenType{TokenType.SEMICOLON})) return s.Break.new(break_condition);
+        if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
+        if (self.match(1, [1]TokenType{TokenType.IF})) return self.breakIfStatement(break_condition);
+        if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
+        if (self.match(1, [1]TokenType{TokenType.WHILE})) return self.whileStatement();
+        if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.breakBlock(break_condition));
+        return self.expressionStatement();
+    }
+
+    fn breakBlock(self: *Parser, condition: *expr.Expr) Error!ArrayList(Stmt) {
+        var break_count: u8 = 0;
+        var statements = ArrayList(s.Stmt).init(self.allocator);
+        // TODO: still issue with managing break count.
+        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) {
+            if (break_count > 1) return err.error_msg(self.peek().line, "break appears multiple times in block", Error.SyntaxError, self.allocator);
+            const stmt = try self.breakDeclaration(condition);
+            switch (stmt) {
+                .@"break" => break_count += 1,
+                else => {}
+            }
+            try statements.append(stmt);
+        }
+        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect ';' after block");
+        return statements;
+    }
+
+    fn breakIfStatement(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
+        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
+        const condition = try self.expression();
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
+        
+        const then_branch = try self.breakStatement(break_condition);
+        var else_branch: ?Stmt = null;
+        if (self.match(1, [1]TokenType{TokenType.ELSE})) {
+            else_branch = try self.breakStatement(break_condition);
+        }
+        return try s.If.new(condition, then_branch, else_branch, self.allocator);
+    }
+
+    fn breakDeclaration(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
+        try {
+            if (self.match(var_match.len, var_match)) return try self.varDeclaration();
+            return try self.breakStatement(break_condition);
+        } catch {
+            self.synchronize();
+            return Error.ParseError;
+        };
     }
 
     fn block(self: *Parser) Error!ArrayList(Stmt) {
@@ -163,10 +233,10 @@ pub const Parser = struct {
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
         
-        const then_branch = try self.statement();
+        const then_branch = try self.breakStatement(condition);
         var else_branch: ?Stmt = null;
         if (self.match(1, [1]TokenType{TokenType.ELSE})) {
-            else_branch = try self.statement();
+            else_branch = try self.breakStatement(condition);
         }
         return try s.If.new(condition, then_branch, else_branch, self.allocator);
     }
@@ -199,15 +269,16 @@ pub const Parser = struct {
     //                -> | primary ;
     // primary        -> NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
-    fn expression(self: *Parser) Error!*const expr.Expr {
+
+    fn expression(self: *Parser) Error!*expr.Expr {
         return try self.assignment();
     }
 
-    fn assignment(self: *Parser) Error!*const expr.Expr {
+    fn assignment(self: *Parser) Error!*expr.Expr {
         // First naively evaluate the token before the '='
         const greedy_expr = try self.logic_or();
         var equals: Token = undefined;
-        var value: *const expr.Expr = undefined;
+        var value: *expr.Expr = undefined;
 
         // Check if we are indeed "assigning" 
         // Step-forward tokens until '=' 
@@ -229,7 +300,7 @@ pub const Parser = struct {
         return greedy_expr;
     }
 
-    fn logic_or(self: *Parser) Error!*const expr.Expr {
+    fn logic_or(self: *Parser) Error!*expr.Expr {
         var left_expr = try self.logic_and();
 
         while (self.match(1, [1]TokenType{TokenType.OR})) {
@@ -240,7 +311,7 @@ pub const Parser = struct {
         return left_expr;
     }
 
-    fn logic_and(self: *Parser) Error!*const expr.Expr { 
+    fn logic_and(self: *Parser) Error!*expr.Expr { 
         var left_expr = try self.equality();
 
         while (self.match(1, [1]TokenType{TokenType.AND})) {
@@ -251,7 +322,7 @@ pub const Parser = struct {
         return left_expr;
     }
 
-    fn equality(self: *Parser) Error!*const expr.Expr {
+    fn equality(self: *Parser) Error!*expr.Expr {
         var e = try self.comparison();
         while (self.match(equality_match.len, equality_match)) {
             const operator = self.previous();
@@ -261,7 +332,7 @@ pub const Parser = struct {
         return e;
     }
 
-    fn comparison(self: *Parser) Error!*const expr.Expr {
+    fn comparison(self: *Parser) Error!*expr.Expr {
         var e = try self.term();
         while (self.match(comparison_match.len, comparison_match)) {
             const operator = self.previous();
@@ -271,7 +342,7 @@ pub const Parser = struct {
         return e;
     }
 
-    fn term(self: *Parser) Error!*const expr.Expr {
+    fn term(self: *Parser) Error!*expr.Expr {
         var e = try self.factor();
         while (self.match(term_match.len, term_match)) {
             const operator = self.previous();
@@ -281,7 +352,7 @@ pub const Parser = struct {
         return e;
     }
 
-    fn factor(self: *Parser) Error!*const expr.Expr {
+    fn factor(self: *Parser) Error!*expr.Expr {
         var e = try self.unary();
         while (self.match(factor_match.len, factor_match)) {
             const operator = self.previous();
@@ -291,7 +362,7 @@ pub const Parser = struct {
         return e;
     }
 
-    fn unary(self: *Parser) Error!*const expr.Expr {
+    fn unary(self: *Parser) Error!*expr.Expr {
         if (self.match(unary_match.len, unary_match)) {
             const operator = self.previous();
             const right = try self.unary();
@@ -300,7 +371,7 @@ pub const Parser = struct {
         return try self.primary();
     }
 
-    fn primary(self: *Parser) Error!*const expr.Expr {
+    fn primary(self: *Parser) Error!*expr.Expr {
         if (self.match(1, [1]TokenType{TokenType.FALSE})) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.TRUE})) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.NIL})) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
@@ -383,7 +454,7 @@ pub const Parser = struct {
     // }
 };
 
-test "private_functionality" {
+test "parser: helper method (`advance`, `peek`, `previous`) functionality" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -414,4 +485,11 @@ test "private_functionality" {
     // Step til end 
     _ = parser.advance();
     try std.testing.expectEqual(true, parser.reachedEnd());
+}
+
+test "yes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    _ = allocator;
 }

@@ -58,7 +58,7 @@ pub const Interpreter = struct {
     }
 
     // private methods
-    fn evaluate(self: *Self, expr: *const e.Expr) T {
+    fn evaluate(self: *Self, expr: *e.Expr) T {
         const visitor = self.initExprVisitor();
         return expr.accept(T, visitor);
     }
@@ -77,6 +77,18 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
+    // TODO: implement visitBreakStmt
+    pub fn visitBreakStmt(self: *Self, stmt: s.Break) stmt_T {
+        // TODO: idea for `break`: 
+        // - define Break { associated_condition: *Expr } in stmt.zig
+        //      - the associated_condition will be a reference to the condition in `while`
+        // - when we hit `break`, we change the associated_condition to Literal(False)
+        // and just return from the break statement?
+        // NOTE: need a way to "jump" out of the corresponding while statement
+        stmt.associated_condition.* = e.Literal.new(Literal{.Bool = false}, self.allocator).*;
+        return;
+    }
+
     pub fn visitWhileStmt(self: *Self, stmt: s.While) stmt_T {
         while ((try self.evaluate(stmt.condition)).isTruthy()) {
             try self.execute(stmt.body.*);
@@ -113,15 +125,26 @@ pub const Interpreter = struct {
 
         self.environment = environment;
         for (statements.items) |stmt| {
-            try self.execute(stmt);
+            // TODO: issue, if we execute a break, how do we jump out?
+            switch (stmt) {
+                .@"break" => {
+                    try self.execute(stmt);
+                    break;
+                },
+                else => try self.execute(stmt)
+            }
         }
     }
 
+    // TODO: what if we change stmt to return value but don't do anything with it for debugging?
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
         const value = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
         switch (stmt.expression.*) {
             .assign => {},
-            else => std.debug.print("{s}\n", .{try value.to_string(self.allocator)})
+            else => {
+                const literal = try value.to_string(self.allocator);
+                std.debug.print("{s}\n", .{literal});
+            }
         }
     }
 
@@ -295,6 +318,33 @@ pub const Interpreter = struct {
     }
 };
 
-test "fix" {
+test "scanner" {
+    const Scanner = @import("scanner.zig").Scanner;
+    const Parser = @import("parser.zig").Parser;
+    // TODO: scan tokens
+    const source = 
+        \\ 1 + 2 + 3;
+        ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var scanner = Scanner.new(source, allocator);
+    // move forward
+    const tokens = try scanner.scanTokens();
+
+    var parser = Parser.new(tokens, allocator);
+    var statements = try parser.parse();
+    var interpreter = try Interpreter.init(allocator);
+
+    while (statements.items.len > 0) {
+        const statement = statements.orderedRemove(0);
+        interpreter.execute(statement) catch |runtime_error| {
+            if (runtime_error == RuntimeError.AllocError) {
+                // Do nothing upon allocation error
+                err.runtime_error_msg(null, "allocation error at runtime", runtime_error, allocator) catch {};
+            }
+        };
+    }     
 
 }

@@ -71,8 +71,12 @@ fn run_file(path: []const u8, interpreter: *Interpreter, allocator: std.mem.Allo
 fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocator) Error!void { 
     var scanner = Scanner.new(source, allocator);
     const tokens = try scanner.scanTokens();
+
     var parser = Parser.new(tokens, allocator);
-    var statements  = parser.parse() catch return Error.ParseError;
+    var statements  = parser.parse() catch {
+        // TODO: incorporate appropriate error messaging for ParseError
+        return Error.ParseError;
+    };
 
     // var Printer = AstPrinter.init(allocator);
     // const out = Printer.print(e) catch |err| return err;

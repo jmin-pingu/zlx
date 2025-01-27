@@ -29,6 +29,7 @@ const kvs_list = [_]struct { []const u8, TokenType }{
     .{ "true", TokenType.TRUE},
     .{ "var", TokenType.VAR},
     .{ "while", TokenType.WHILE},
+    .{ "break", TokenType.BREAK},
 };
 
 const keywords = StaticStringMap(TokenType).initComptime(kvs_list);
@@ -210,9 +211,7 @@ test "syntax_error1_test" {
     const allocator = arena.allocator();
     var scanner = Scanner.new(source, allocator);
     // move forward
-    std.debug.print("syntax_error1_test:\n", .{});
     try std.testing.expectError(Error.SyntaxError, scanner.scanTokens());
-    std.debug.print("\n", .{});
 }
 
 test "syntax_error2_test" {
@@ -222,9 +221,7 @@ test "syntax_error2_test" {
     const allocator = arena.allocator();
     var scanner = Scanner.new(source, allocator);
     // move forward
-    std.debug.print("syntax_error2_test:\n", .{});
     try std.testing.expectError(Error.SyntaxError, scanner.scanTokens());
-    std.debug.print("\n", .{});
 }
 
 test "no_error1_test" {
@@ -239,12 +236,9 @@ test "no_error1_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("no_error1_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
 
 test "string_test" {
@@ -255,12 +249,9 @@ test "string_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("string_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
 
 test "number1_test" {
@@ -271,12 +262,9 @@ test "number1_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("number1_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
 
 test "number2_test" {
@@ -287,12 +275,9 @@ test "number2_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("number2_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
 
 test "identifier_test" {
@@ -303,12 +288,9 @@ test "identifier_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("identifier_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
 
 test "nested_comment_test" {
@@ -324,10 +306,7 @@ test "nested_comment_test" {
     var scanner = Scanner.new(source, allocator);
     // move forward
     const parsed = try scanner.scanTokens();
-    std.debug.print("nested_comment_test: parsed tokens\n", .{});
     for (parsed.items) |token| {
-        var new_token = token;
-        std.debug.print("\t{s}", .{new_token.to_string(allocator)});
+        _ = token;
     }
-    std.debug.print("\n", .{});
 }
