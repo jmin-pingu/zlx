@@ -15,6 +15,8 @@ pub const Error = error{
     AllocError,
     AssignmentError,
     VariableShadow,
+    FunctionCallError,
+    TooManyArguments,
 };
 
 const SyntaxError = error {};
@@ -25,7 +27,9 @@ pub const RuntimeError = error {
     OperatorError,
     AllocError,
     UninitializedVariable,
+    FunctionCallError,
     UndeclaredVariable,
+    TooManyArguments,
 };
 
 

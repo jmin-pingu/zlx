@@ -3,11 +3,13 @@ const std = @import("std");
 // Custom Imports
 const Error = @import("error.zig").Error;
 const Token = @import("token/token.zig").Token;
-const LiteralValue = @import("token/literal.zig").Literal;
+const Object = @import("token/object.zig").Object;
+const ArrayList = std.ArrayList;
 
 pub const Expr= union(enum) {
     binary: Binary, 
     grouping: Grouping, 
+    call: Call, 
     literal: Literal, 
     unary: Unary,
     @"var": Var,
@@ -21,8 +23,27 @@ pub const Expr= union(enum) {
     }
 };
  
-// NOTE: does it make for us to operate on `*const Expr` instead of `Expr`
-//
+
+pub const Call = struct {
+    callee: *Expr,
+    paren: Token,
+    arguments: ArrayList(*Expr),
+        
+    pub fn new(callee: *Expr, paren: Token, arguments: ArrayList(*Expr), allocator: std.mem.Allocator) *Expr {
+        const expr = allocator.create(Expr) catch unreachable;
+        expr.* = Expr{ 
+            .call=Call{ 
+                .callee=callee, .paren=paren, .arguments=arguments,
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: Call, T: type, visitor: Visitor(T)) T { 
+        return visitor.visitCallExpr(self);
+    }
+};
+
 pub const Logical = struct {
     left: *Expr,
     operator: Token,
@@ -94,8 +115,8 @@ pub const Grouping = struct {
 
 pub const Literal = struct {
     // NOTE: naming, I really don't like having LiteralValue in token.zig 
-    value: LiteralValue,
-    pub fn new(value: LiteralValue, allocator: std.mem.Allocator) *Expr {
+    value: Object,
+    pub fn new(value: Object, allocator: std.mem.Allocator) *Expr {
         const expr = allocator.create(Expr) catch unreachable;
         expr.* = Expr{ 
             .literal=Literal{ 
@@ -178,6 +199,7 @@ pub fn Visitor(comptime T: type) type {
         visitVarExprFn: *const fn (*anyopaque, expr: Var) T,
         visitAssignExprFn: *const fn (*anyopaque, expr: Assign) T,
         visitLogicalExprFn: *const fn (*anyopaque, expr: Logical) T,
+        visitCallExprFn: *const fn (*anyopaque, expr: Call) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -222,6 +244,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitLogicalExpr, .{self, expr});
                 }
+
+                pub fn visitCallExprImpl(pointer: *anyopaque, expr: Call) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitCallExpr, .{self, expr});
+                }
             };
         
             return .{
@@ -233,6 +260,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitVarExprFn = gen.visitVarExprImpl,
                 .visitAssignExprFn = gen.visitAssignExprImpl,
                 .visitLogicalExprFn = gen.visitLogicalExprImpl,
+                .visitCallExprFn = gen.visitCallExprImpl,
             };
         }
 
@@ -262,6 +290,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitLogicalExpr(self: Self, expr: Logical) T {
             return self.visitLogicalExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitCallExpr(self: Self, expr: Call) T {
+            return self.visitCallExprFn(self.ptr, expr);
         }
     };
 }

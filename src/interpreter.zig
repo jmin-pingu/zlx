@@ -4,14 +4,17 @@ const ArrayList = std.ArrayList;
 
 const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
-const Literal= @import("token/literal.zig").Literal;
-const Tag = @import("token/literal.zig").Tag;
+const Object= @import("token/object.zig").Object;
+const Tag = @import("token/object.zig").Tag;
 
 const e= @import("expr.zig");
 const ExprVisitor = @import("expr.zig").Visitor;
 
 const s = @import("stmt.zig");
 const StmtVisitor = @import("stmt.zig").Visitor;
+
+const Function = @import("function.zig").Function;
+const Callable = @import("callable.zig").Callable;
 
 const Environment = @import("environment.zig").Environment;
 
@@ -22,25 +25,62 @@ const err = @import("error.zig");
 // TODO: rethink this struct and whether I want the `Visitor`s as fields
 pub const Interpreter = struct {
     const Self = @This();
-    const T: type = RuntimeError!Literal;
+    const T: type = RuntimeError!Object;
     const stmt_T: type = RuntimeError!void;
     allocator: std.mem.Allocator,
     environment: Environment,
+    globals: *Environment,
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
-    
-    // public facing methods 
     pub fn init(allocator: std.mem.Allocator) Error!Self {
         // when initializing the interpreter, the environment is the root environment
-        return .{ 
-            .environment= try Environment.init(allocator, null),
+        var env = try Environment.init(allocator, null);
+        const temp = .{ 
+            .environment= env,
+            .globals = &env,
             .allocator=allocator
         };
+        // TODO: stuff native functions into global scope
+        // TODO: need to figure out how to incorporate native functions
+        // const Clock = struct {
+        //     const S = @This();
+
+        //     pub fn arity(self: *S) usize {
+        //         _ = self;
+        //         return 0;
+        //     }
+
+        //     pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object)) Error!Object {
+        //         _ = self;
+        //         _ = interpreter;
+        //         _ = arguments;
+        //         std.debug.print("{d}", .{@divFloor(std.time.milliTimestamp(), 1000)});
+        //         return Object{.Nil = null};
+        //     }
+
+        //     pub fn toString(self: *S) []const u8{
+        //         _ = self;
+        //         return "<native fn>";
+        //     }
+
+
+        //     pub fn initCallable(self: *S) Callable() {
+        //         return Callable().init(self);
+        //     }
+        // };
+        // var clock = Clock{};
+
+        // var fn_ref = try allocator.create(Function);
+        // fn_ref.* = Function.init(null, allocator) catch return Error.AllocError;
+        // fn_ref.callable = clock.initCallable();
+        // try temp.globals.define("clock", Object{.Function = fn_ref}, allocator);
+        return temp;
     }
 
     pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) Error!void {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
+            // std.debug.print("interpreting {any}\n", .{statement});
             self.execute(statement) catch |runtime_error| {
                 if (runtime_error == RuntimeError.AllocError) {
                     // Do nothing upon allocation error
@@ -77,15 +117,17 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
-    // TODO: implement visitBreakStmt
+    pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
+        const fn_ref = self.allocator.create(Function) catch return RuntimeError.AllocError;
+        fn_ref.* = Function.init(stmt, self.allocator) catch return RuntimeError.AllocError;
+        // const callable_ref = self.allocator.create(Callable()) catch return RuntimeError.AllocError;
+       
+        std.debug.print("declaring function {s}, {any}\n\n", .{fn_ref.initCallable().toString() catch return RuntimeError.AllocError, fn_ref.initCallable().arity()});
+        self.environment.define(stmt.name.lexeme, Object{.Function=fn_ref}, self.allocator) catch return RuntimeError.AllocError;
+    }
+
     pub fn visitBreakStmt(self: *Self, stmt: s.Break) stmt_T {
-        // TODO: idea for `break`: 
-        // - define Break { associated_condition: *Expr } in stmt.zig
-        //      - the associated_condition will be a reference to the condition in `while`
-        // - when we hit `break`, we change the associated_condition to Literal(False)
-        // and just return from the break statement?
-        // NOTE: need a way to "jump" out of the corresponding while statement
-        stmt.associated_condition.* = e.Literal.new(Literal{.Bool = false}, self.allocator).*;
+        stmt.associated_condition.* = e.Literal.new(Object{.Bool = false}, self.allocator).*;
         return;
     }
 
@@ -118,7 +160,7 @@ pub const Interpreter = struct {
         ) catch |runtime_err| return runtime_err;
     }
 
-    fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
+    pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
         const parent_environment = self.environment; // move
         defer self.environment = parent_environment; 
         errdefer self.environment = parent_environment;
@@ -131,7 +173,10 @@ pub const Interpreter = struct {
                     try self.execute(stmt);
                     break;
                 },
-                else => try self.execute(stmt)
+                else => {
+                    std.debug.print("{any}\n", .{stmt});
+                    try self.execute(stmt);
+                }
             }
         }
     }
@@ -154,18 +199,52 @@ pub const Interpreter = struct {
     }
 
     pub fn visitVarStmt(self: *Self, stmt: s.Var) stmt_T {
-        const value = self.allocator.create(Literal) catch return RuntimeError.AllocError;
+        const value = self.allocator.create(Object) catch return RuntimeError.AllocError;
         if (stmt.initializer) |checked_initializer| {
             // Instantiation
             value.* = try self.evaluate(checked_initializer);
-            self.environment.define(stmt.name, value.*, self.allocator) catch return RuntimeError.AllocError;
+            self.environment.define(stmt.name.lexeme, value.*, self.allocator) catch return RuntimeError.AllocError;
         } else {
             // Declaration
-            self.environment.define(stmt.name, null, self.allocator) catch return RuntimeError.AllocError;
+            self.environment.define(stmt.name.lexeme, null, self.allocator) catch return RuntimeError.AllocError;
         }
     }
 
     // visitorExpr logic
+    // TODO: double-check implementation here 
+    pub fn visitCallExpr(self: *Self, expr: e.Call) T {
+        const callee = try self.evaluate(expr.callee);
+        var arguments = ArrayList(Object).init(self.allocator);
+        for (expr.arguments.items) |arg| {
+            arguments.append(try self.evaluate(arg)) catch return RuntimeError.AllocError;
+        }
+
+        const function = switch (callee) {
+            .Function => |value| value.initCallable(),
+            else => {
+                const err_msg = std.fmt.allocPrint(
+                    self.allocator, 
+                    "function not defined", 
+                    .{}
+                ) catch return RuntimeError.AllocError;
+                return err.runtime_error_msg(expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
+            },
+        };
+
+        std.debug.print("FUNC_CALL: {s}, arity: {d}, args: {any}\n", .{function.toString() catch return RuntimeError.AllocError, function.arity(), arguments}) ;
+        if (arguments.items.len != function.arity()) {
+            const err_msg = std.fmt.allocPrint(
+                self.allocator, 
+                "expected {d} arguments, got {d}", 
+                .{arguments.items.len, function.arity()}
+            ) catch return RuntimeError.AllocError;
+            return err.runtime_error_msg(expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
+             
+        }
+        return function.call(self, arguments) catch return RuntimeError.FunctionCallError;
+
+    }
+
     pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
         const value = try self.evaluate(expr.value);
         try self.environment.assign(expr.name, value, self.allocator);
@@ -173,12 +252,9 @@ pub const Interpreter = struct {
     }
 
     pub fn visitVarExpr(self: *Self, expr: e.Var) T {
-        const optional = try self.environment.get(expr.name, self.allocator);
-        if (optional) |value| {
-            return value;
-        } else {
-            return RuntimeError.UninitializedVariable;
-        }
+        std.debug.print("getting: {s}\n", .{expr.name.lexeme});
+        const variable = try self.environment.get(expr.name.lexeme, self.allocator);
+        return variable;
     }
 
     pub fn visitLogicalExpr(self: *Self, expr: e.Logical) T {
@@ -198,16 +274,16 @@ pub const Interpreter = struct {
         return switch (expr.operator.ttype) {
             TokenType.MINUS => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Number = left.Number - right.Number};
+                return Object{ .Number = left.Number - right.Number};
             },
             TokenType.SLASH => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Number = left.Number / right.Number};
+                return Object{ .Number = left.Number / right.Number};
 
             },
             TokenType.STAR => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Number = left.Number * right.Number};
+                return Object{ .Number = left.Number * right.Number};
             },
             TokenType.PLUS => {
                 if (!left.same_tags(right, Tag.String) and !left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
@@ -217,33 +293,33 @@ pub const Interpreter = struct {
                         "{s}{s}", 
                         .{left.String, right.String}
                     ) catch return RuntimeError.AllocError;
-                    return Literal{ .String = new_string};
+                    return Object{ .String = new_string};
 
                 } else {
-                    return Literal{ .Number = left.Number + right.Number};
+                    return Object{ .Number = left.Number + right.Number};
                 }
             },
             TokenType.GREATER => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Bool = left.Number > right.Number};
+                return Object{ .Bool = left.Number > right.Number};
             },
             TokenType.GREATER_EQUAL => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Bool = left.Number >= right.Number};
+                return Object{ .Bool = left.Number >= right.Number};
             },
             TokenType.LESS => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Bool = left.Number < right.Number};
+                return Object{ .Bool = left.Number < right.Number};
             },
             TokenType.LESS_EQUAL => {
                 if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Bool = left.Number <= right.Number};
+                return Object{ .Bool = left.Number <= right.Number};
             },
             TokenType.BANG_EQUAL => {
-                return Literal{ .Bool = !left.equals(right)};
+                return Object{ .Bool = !left.equals(right)};
             },
             TokenType.EQUAL_EQUAL => {
-                return Literal{ .Bool = left.equals(right)};
+                return Object{ .Bool = left.equals(right)};
             },
             else => {
                 return RuntimeError.OperatorError;
@@ -288,10 +364,10 @@ pub const Interpreter = struct {
             TokenType.MINUS => {
                 // TODO: check numeric
                 if (!right.check_tag(Tag.Number)) return RuntimeError.OperandError;
-                return Literal{ .Number = -right.Number};
+                return Object{ .Number = -right.Number};
             },
             TokenType.BANG => {
-                return Literal{ .Bool = !right.isTruthy()};
+                return Object{ .Bool = !right.isTruthy()};
             },
             else => {
                 return RuntimeError.OperatorError;

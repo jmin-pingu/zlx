@@ -15,6 +15,8 @@ pub const Stmt= union(enum) {
     @"if": If,
     @"while": While,
     @"break": Break,
+    function: Function,
+    // @"return": Return,
 
     pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
@@ -22,7 +24,47 @@ pub const Stmt= union(enum) {
         }
     }
 };
+
+pub const Return = struct { 
+    keyword: Token,
+    value: *Expr,
+
+    pub fn accept(self: Function, T: type, visitor: Visitor(T)) T {
+        return visitor.visitFunctionStmt(self);
+    }
+
+    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Error!Stmt {
+        return Stmt{ 
+            .function= Function {
+                .name= name, 
+                .params = params, 
+                .body= body
+            } 
+        };
+    }
+};
+
  
+pub const Function = struct { 
+    name: Token,
+    params: ArrayList(Token),
+    body: ArrayList(Stmt),
+
+    pub fn accept(self: Function, T: type, visitor: Visitor(T)) T {
+        return visitor.visitFunctionStmt(self);
+    }
+
+    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Error!Stmt {
+        return Stmt{ 
+            .function= Function {
+                .name= name, 
+                .params = params.clone() catch return Error.AllocError,
+                .body= body.clone() catch return Error.AllocError
+            } 
+        };
+    }
+};
+
 
 pub const Break = struct { 
     associated_condition: *Expr,
@@ -152,6 +194,7 @@ pub fn Visitor(comptime T: type) type {
         visitIfStmtFn: *const fn (*anyopaque, stmt: If) T,
         visitWhileStmtFn: *const fn (*anyopaque, stmt: While) T,
         visitBreakStmtFn: *const fn (*anyopaque, stmt: Break) T,
+        visitFunctionStmtFn: *const fn (*anyopaque, stmt: Function) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -194,6 +237,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitBreakStmt, .{self, stmt});
                 }
+
+                pub fn visitFunctionStmtImpl(pointer: *anyopaque, stmt: Function) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitFunctionStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -205,6 +253,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitIfStmtFn = gen.visitIfStmtImpl,
                 .visitWhileStmtFn = gen.visitWhileStmtImpl,
                 .visitBreakStmtFn = gen.visitBreakStmtImpl,
+                .visitFunctionStmtFn = gen.visitFunctionStmtImpl,
             };
         }
 
@@ -234,6 +283,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitBreakStmt(self: Self, stmt: Break) T {
             return self.visitBreakStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitFunctionStmt(self: Self, stmt: Function) T {
+            return self.visitFunctionStmtFn(self.ptr, stmt);
         }
     };
 }

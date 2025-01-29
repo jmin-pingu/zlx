@@ -1,14 +1,14 @@
 const std = @import("std");
 
 const TokenType = @import("token_type.zig").TokenType;
-const Literal = @import("literal.zig").Literal;
-const Tag = @import("literal.zig").Tag;
+const Object = @import("object.zig").Object;
+const Tag = @import("object.zig").Tag;
 // union for literal values
 // Data Oriented Programming: we are fundamentally wasting space with literal since more often than not, it will be Nil
 pub const Token = struct {
     ttype: TokenType,
     lexeme: []const u8, 
-    literal: Literal, 
+    literal: Object, 
     line: u64, 
 
     pub fn new(ttype: TokenType, lexeme: []const u8, literal: ?[]const u8, line: u64) Token {
@@ -19,7 +19,7 @@ pub const Token = struct {
                     .ttype = ttype,
                     .lexeme = lexeme,
                     // TODO: double check optional unwrapping here
-                    .literal = Literal{.Identifier=literal.?},
+                    .literal = Object{.Identifier=literal.?},
                     .line = line,
                 };
             }, 
@@ -27,7 +27,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = Literal{.String=literal.?},
+                    .literal = Object{.String=literal.?},
                     .line = line,
                 };
             }, 
@@ -35,7 +35,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = Literal{.Number=std.fmt.parseFloat(f64, literal.?) catch unreachable},
+                    .literal = Object{.Number=std.fmt.parseFloat(f64, literal.?) catch unreachable},
                     .line = line,
                 };
             },
@@ -43,7 +43,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = Literal{.Bool=false},
+                    .literal = Object{.Bool=false},
                     .line = line,
                 };
             },
@@ -51,7 +51,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = Literal{.Bool=true},
+                    .literal = Object{.Bool=true},
                     .line = line,
                 };
             },
@@ -59,7 +59,7 @@ pub const Token = struct {
                 return Token {
                     .ttype = ttype,
                     .lexeme = lexeme,
-                    .literal = Literal{.Nil=null},
+                    .literal = Object{.Nil=null},
                     .line = line,
                 };
             }
@@ -73,7 +73,7 @@ pub const Token = struct {
 
 
 test "literal_test" {
-    const x0 = Literal{ .Identifier = "bar" };
+    const x0 = Object{ .Identifier = "bar" };
     // const x1 = Literal{ .String = "foo" };
     // const x2 = Literal{ .Number = 10 };
     // const x3 = Literal{ .Nil = null };

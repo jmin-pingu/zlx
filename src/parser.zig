@@ -4,7 +4,7 @@ const ArrayList = std.ArrayList;
 
 const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
-const LiteralValue = @import("token/literal.zig").Literal;
+const Object = @import("token/object.zig").Object;
 
 const expr = @import("expr.zig");
 
@@ -20,7 +20,6 @@ const unary_match = [2]TokenType{TokenType.BANG, TokenType.MINUS};
 const factor_match = [2]TokenType{TokenType.SLASH, TokenType.STAR};
 const comparison_match = [4]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL};
 const term_match = [2]TokenType{TokenType.MINUS, TokenType.PLUS};
-const var_match = [1]TokenType{TokenType.VAR};
 
 // TODO: need to reason better about when to heap allocate
 // TODO: implement better error messaging in the parser
@@ -49,8 +48,15 @@ pub const Parser = struct {
     // STATEMENT GRAMMAR RULES
     // program        -> declaration * EOF ; 
     //
-    // declaration    -> varDecl 
+    // declaration    -> funDecl 
+    //                   | varDecl 
     //                   | statement ;
+    //
+    // funDecl        -> "fun" function ;
+    //
+    // function       -> IDENTIFIER "(" parameters? ")" block ;
+    //
+    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
     //
     // varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
     //
@@ -60,6 +66,8 @@ pub const Parser = struct {
     //                   | printStmt
     //                   | whileStmt
     //                   | block ;
+    //
+    // returnStmt     -> "return" expression? ";" ;
     //                      
     // forStmt        -> "for" "(" ( varDecl | exprStmt | ; )
     //                   expression? ";"
@@ -80,7 +88,8 @@ pub const Parser = struct {
     //
     // breakBlock     -> "{" breakDecl* "}" ;
     //
-    // breakDecl      -> varDecl 
+    // breakDecl      -> funDecl
+    //                   | varDecl 
     //                   | breakStatement ;
     //
     // ifStmt         -> if "(" expression ")" statement
@@ -90,12 +99,28 @@ pub const Parser = struct {
     
     fn declaration(self: *Parser) Error!Stmt {
         try {
-            if (self.match(var_match.len, var_match)) return try self.varDeclaration();
+            if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.function("function");
+            if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
             return try self.statement();
         } catch {
             self.synchronize();
             return Error.ParseError;
         };
+    }
+
+    fn function(self: *Parser, kind: []const u8) Error!Stmt {
+        const name = try self.consume(TokenType.IDENTIFIER, try std.fmt.allocPrint(self.allocator, "Expect {s} name", .{kind}));
+        _ = try self.consume(TokenType.LEFT_PAREN, try std.fmt.allocPrint(self.allocator, "Expect '(' after {s} name", .{kind}));
+        var parameters = ArrayList(Token).init(self.allocator);
+        while (!self.check(TokenType.RIGHT_PAREN)) {
+            if (parameters.items.len >= 255) return err.error_msg(self.peek().line, "Can't have more than 255 parameters", Error.TooManyArguments, self.allocator);
+            try parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name"));
+            _ = self.match(1, [1]TokenType{TokenType.COMMA});
+        }
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after paremeters");
+        _ = try self.consume(TokenType.LEFT_BRACE, try std.fmt.allocPrint(self.allocator, "Expect '{c}' before {s} body", .{'{', kind}));
+        const body = try self.block();
+        return s.Function.new(name, parameters, body);
     }
 
     fn varDeclaration(self: *Parser) Error!Stmt {
@@ -140,7 +165,7 @@ pub const Parser = struct {
         }         
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
 
-        condition = expr.Literal.new(LiteralValue{.Bool = true}, self.allocator);
+        condition = expr.Literal.new(Object{.Bool = true}, self.allocator);
         var body = try self.breakStatement(condition.?);
 
         if (increment != null) {
@@ -169,6 +194,19 @@ pub const Parser = struct {
         const body = try self.breakStatement(condition);
         return s.While.new(condition, body, self.allocator);
     }
+
+    fn ifStatement(self: *Parser) Error!Stmt {
+        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
+        const condition = try self.expression();
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
+        const then_branch = try self.statement();
+        var else_branch: ?Stmt = null;
+        if (self.match(1, [1]TokenType{TokenType.ELSE})) {
+            else_branch = try self.statement();
+        }
+        return try s.If.new(condition, then_branch, else_branch, self.allocator);
+    }
+
 
     fn breakStatement(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
         // TODO: issue with identifying multiple break's per block
@@ -202,7 +240,6 @@ pub const Parser = struct {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
-        
         const then_branch = try self.breakStatement(break_condition);
         var else_branch: ?Stmt = null;
         if (self.match(1, [1]TokenType{TokenType.ELSE})) {
@@ -211,9 +248,11 @@ pub const Parser = struct {
         return try s.If.new(condition, then_branch, else_branch, self.allocator);
     }
 
+
     fn breakDeclaration(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
         try {
-            if (self.match(var_match.len, var_match)) return try self.varDeclaration();
+            if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.function("function");
+            if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
             return try self.breakStatement(break_condition);
         } catch {
             self.synchronize();
@@ -224,23 +263,9 @@ pub const Parser = struct {
     fn block(self: *Parser) Error!ArrayList(Stmt) {
         var statements = ArrayList(s.Stmt).init(self.allocator);
         while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) try statements.append(try self.declaration());
-        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect ';' after block");
+        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
         return statements;
     }
-
-    fn ifStatement(self: *Parser) Error!Stmt {
-        _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
-        const condition = try self.expression();
-        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
-        
-        const then_branch = try self.breakStatement(condition);
-        var else_branch: ?Stmt = null;
-        if (self.match(1, [1]TokenType{TokenType.ELSE})) {
-            else_branch = try self.breakStatement(condition);
-        }
-        return try s.If.new(condition, then_branch, else_branch, self.allocator);
-    }
-
     fn printStatement(self: *Parser) Error!Stmt {
         const e = self.expression() catch return Error.ParseError; 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value");
@@ -266,7 +291,9 @@ pub const Parser = struct {
     // term           -> factor ( ( "-" | "+" ) factor )* ;
     // factor         -> unary ( ( "/" | "*" ) unary )* ;
     // unary          -> ( "!" | "-" ) unary
-    //                -> | primary ;
+    //                   | call;
+    // call           -> primary ( "(" arguments? ")" )* ;
+    // arguments      -> expression ( "," expression )* ;
     // primary        -> NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
 
@@ -368,13 +395,43 @@ pub const Parser = struct {
             const right = try self.unary();
             return expr.Unary.new(operator, right, self.allocator);
         }
-        return try self.primary();
+        return try self.call();
+    }
+
+    fn call(self: *Parser) Error!*expr.Expr {
+        var builder_expr = try self.primary();
+        while (true) {
+            if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
+                builder_expr = try self.finishCall(builder_expr);
+            } else {
+                break;
+            }
+        }
+        return builder_expr;
+    } 
+
+    fn finishCall(self: *Parser, callee: *expr.Expr) Error!*expr.Expr {
+        var arguments = ArrayList(*expr.Expr).init(self.allocator);
+        if (!self.check(TokenType.RIGHT_PAREN)) {
+            if (arguments.items.len >= 255) {
+                return err.error_msg(self.peek().line, "Can't have more than 255 arguments", Error.TooManyArguments, self.allocator);
+            }
+            try arguments.append(try self.expression());
+            while (self.match(1, [1]TokenType{TokenType.COMMA})) {
+                try arguments.append(try self.expression());
+            }
+        }
+
+        const right_paren = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments");
+        // TODO: the fuck is callee in this case
+        return expr.Call.new(callee, right_paren, arguments, self.allocator);
+
     }
 
     fn primary(self: *Parser) Error!*expr.Expr {
-        if (self.match(1, [1]TokenType{TokenType.FALSE})) return expr.Literal.new(LiteralValue{.Bool=false}, self.allocator);
-        if (self.match(1, [1]TokenType{TokenType.TRUE})) return expr.Literal.new(LiteralValue{.Bool=true}, self.allocator);
-        if (self.match(1, [1]TokenType{TokenType.NIL})) return expr.Literal.new(LiteralValue{.Nil=null}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.FALSE})) return expr.Literal.new(Object{.Bool=false}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.TRUE})) return expr.Literal.new(Object{.Bool=true}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.NIL})) return expr.Literal.new(Object{.Nil=null}, self.allocator);
         // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate
         if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return expr.Literal.new(self.previous().literal, self.allocator);
 

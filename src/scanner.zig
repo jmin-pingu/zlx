@@ -72,21 +72,21 @@ pub const Scanner = struct {
         const c = self.advance();
         switch (c) {
             // single char
-            '(' => self.addToken(TokenType.LEFT_PAREN, null),
-            ')' => self.addToken(TokenType.RIGHT_PAREN, null),
-            '{' => self.addToken(TokenType.LEFT_BRACE, null),
-            '}' => self.addToken(TokenType.RIGHT_BRACE, null),
-            ',' => self.addToken(TokenType.COMMA, null),
-            '.' => self.addToken(TokenType.DOT, null),
-            '-' => self.addToken(TokenType.MINUS, null),
-            '+' => self.addToken(TokenType.PLUS, null),
-            ';' => self.addToken(TokenType.SEMICOLON, null),
-            '*' => self.addToken(TokenType.STAR, null),
+            '(' => try self.addToken(TokenType.LEFT_PAREN, null),
+            ')' => try self.addToken(TokenType.RIGHT_PAREN, null),
+            '{' => try self.addToken(TokenType.LEFT_BRACE, null),
+            '}' => try self.addToken(TokenType.RIGHT_BRACE, null),
+            ',' => try self.addToken(TokenType.COMMA, null),
+            '.' => try self.addToken(TokenType.DOT, null),
+            '-' => try self.addToken(TokenType.MINUS, null),
+            '+' => try self.addToken(TokenType.PLUS, null),
+            ';' => try self.addToken(TokenType.SEMICOLON, null),
+            '*' => try self.addToken(TokenType.STAR, null),
             // one OR two character tokens
-            '!' => self.addToken(if (self.match('=')) TokenType.BANG_EQUAL else TokenType.BANG, null),
-            '=' => self.addToken(if (self.match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL, null),
-            '<' => self.addToken(if (self.match('=')) TokenType.LESS_EQUAL else TokenType.LESS, null),
-            '>' => self.addToken(if (self.match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER, null),
+            '!' => try self.addToken(if (self.match('=')) TokenType.BANG_EQUAL else TokenType.BANG, null),
+            '=' => try self.addToken(if (self.match('=')) TokenType.EQUAL_EQUAL else TokenType.EQUAL, null),
+            '<' => try self.addToken(if (self.match('=')) TokenType.LESS_EQUAL else TokenType.LESS, null),
+            '>' => try self.addToken(if (self.match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER, null),
             // Longer lexemes: require some lookahead
             '/' => {
                 if (self.match('/')) {
@@ -99,7 +99,7 @@ pub const Scanner = struct {
                     _ = self.advance();
                     _ = self.advance();
                 } else {
-                    self.addToken(TokenType.SLASH, null);
+                    try self.addToken(TokenType.SLASH, null);
                 }
             },            
             '"' => self.string() catch |err| return err,
@@ -108,7 +108,7 @@ pub const Scanner = struct {
             '\n' => self.line += 1,
             else => {
                 if (std.ascii.isDigit(c)) {
-                    self.number(); 
+                    try self.number(); 
                 } else if (std.ascii.isAlphabetic(c) or c == '_') {
                     try self.identifier();
                 } else {
@@ -124,15 +124,15 @@ pub const Scanner = struct {
         const text = self.source[self.start..self.current];
 
         if (keywords.get(text)) |ttype| {
-            self.addToken(ttype, null);
+            try self.addToken(ttype, null);
         } else {
             const copied_text = try self.allocator.alloc(u8, text.len);
             @memcpy(copied_text, text);
-            self.addToken(TokenType.IDENTIFIER, copied_text);
+            try self.addToken(TokenType.IDENTIFIER, copied_text);
         }
     }
 
-    fn number(self: *Scanner) void {
+    fn number(self: *Scanner) Error!void {
         while (std.ascii.isDigit(self.peek())) _ = self.advance();
 
         // fraction check
@@ -141,7 +141,7 @@ pub const Scanner = struct {
         while (std.ascii.isDigit(self.peek())) _ = self.advance();
 
         const value = self.source[self.start..self.current];
-        self.addToken(TokenType.NUMBER, value);
+        try self.addToken(TokenType.NUMBER, value);
     }
     
     fn peekNext(self: *Scanner) u8 {
@@ -166,7 +166,7 @@ pub const Scanner = struct {
         const copied_value = try self.allocator.alloc(u8, value.len);
         @memcpy(copied_value, value);
 
-        self.addToken(TokenType.STRING, copied_value);
+        try self.addToken(TokenType.STRING, copied_value);
     }
     // NOTE: one char lookahead
     fn peek(self: *Scanner) u8 {
@@ -175,8 +175,10 @@ pub const Scanner = struct {
         return self.source[self.current];
     }
 
-    fn addToken(self: *Scanner, ttype: TokenType, literal: ?[]const u8) void {
-        self.tokens.append(Token.new(ttype, self.source[self.start..self.current], literal, self.line)) catch unreachable;
+    fn addToken(self: *Scanner, ttype: TokenType, literal: ?[]const u8) Error!void {
+        const lexeme = try self.allocator.alloc(u8, self.source[self.start..self.current].len);
+        @memcpy(lexeme, self.source[self.start..self.current]);
+        self.tokens.append(Token.new(ttype, lexeme, literal, self.line)) catch unreachable;
     }
 
     // key helper function: updates the current position and returns the character

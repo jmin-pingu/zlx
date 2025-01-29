@@ -7,6 +7,7 @@
 - [ ] Need to better actively think about memory management
 - [ ] Need to better think about runtime v. comptime
 - [ ] Figure out Zig build system.
+- [ ] Fuck. Needed to rewrite this so tests are easily expandable.
 
 # questions
 - Is the Visitor pattern really necessary? How would I implement this OOP like framework in Zig?

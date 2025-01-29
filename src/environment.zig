@@ -3,20 +3,22 @@ const std = @import("std");
 const AutoHashMap = std.AutoHashMap;
 const StringHashMap = std.StringHashMap;
 
-const Literal = @import("token/literal.zig").Literal;
+const Object = @import("token/object.zig").Object;
 const Token = @import("token/token.zig").Token;
+const Function = @import("function.zig").Function;
+const Callable = @import("callable.zig").Callable;
 
 const err = @import("error.zig");
 const Error = @import("error.zig").Error;
 const RuntimeError = @import("error.zig").RuntimeError;
 
 pub const Environment = struct {
-    values: StringHashMap(?Literal),
+    values: StringHashMap(?Object),
     enclosing: ?*Environment = null,
  
     pub fn init(allocator: std.mem.Allocator, enclosing: ?*Environment) Error!Environment {
         return Environment {
-            .values = StringHashMap(?Literal).init(allocator),
+            .values = StringHashMap(?Object).init(allocator),
             .enclosing = enclosing, 
         };
     }
@@ -29,38 +31,37 @@ pub const Environment = struct {
         // }
     }
 
-    pub fn define(self: *Environment, name: Token, value: ?Literal, allocator: std.mem.Allocator) Error!void {
-        // ISSUE: need to copy the data inside both value and name inside the hashmap.
-        const copied_name = try allocator.alloc(u8, name.lexeme.len);
-        @memcpy(copied_name, name.lexeme);
+    pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) Error!void {
+        const copied_name = try allocator.alloc(u8, name.len);
+        @memcpy(copied_name, name);
         try self.values.put(copied_name, value);
     }
 
-    pub fn get(self: Environment, name: Token, allocator: std.mem.Allocator) RuntimeError!?Literal {
-        if (self.values.get(name.lexeme)) |optional| {
+    pub fn get(self: Environment, name: []const u8, allocator: std.mem.Allocator) RuntimeError!Object {
+        if (self.values.get(name)) |optional| {
             if (optional) |value| {
                 return value;
             } else {
                 const error_msg = std.fmt.allocPrint(
                     allocator, 
                     "the variable '{s}' is uninitialized", 
-                    .{name.lexeme}
+                    .{name}
                 ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(name.line, error_msg, RuntimeError.UninitializedVariable, allocator);
+                return err.runtime_error_msg(null, error_msg, RuntimeError.UninitializedVariable, allocator);
             }
         } else if (self.enclosing) |parent_environment| {
             return parent_environment.get(name, allocator);
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 
-                "cannot access declared variable '{s}' \nNOTE: Declare or initialize '{s}' with `var`", 
-                .{name.lexeme, name.lexeme}
+                "cannot access undeclared variable '{s}' \nNOTE: Declare or initialize '{s}' with `var`", 
+                .{name, name}
             ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
+            return err.runtime_error_msg(null, error_msg, RuntimeError.UndeclaredVariable, allocator);
         }
     }
     
-    pub fn assign(self: *Environment, name: Token, value: Literal, allocator: std.mem.Allocator) RuntimeError!void {
+    pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) RuntimeError!void {
         // const copied_name = try allocator.alloc(u8, name.len);
         // @memcpy(copied_name, name);
         if (self.values.get(name.lexeme)) |_| {
