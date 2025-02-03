@@ -9,35 +9,34 @@ const Function = @import("function.zig").Function;
 const Callable = @import("callable.zig").Callable;
 
 const err = @import("error.zig");
-const Error = @import("error.zig").Error;
+const VariableError = @import("error.zig").VariableError;
 const RuntimeError = @import("error.zig").RuntimeError;
+const AllocationError = @import("error.zig").AllocationError;
+const EnvironmentError = @import("error.zig").EnvironmentError;
 
 pub const Environment = struct {
     values: StringHashMap(?Object),
     enclosing: ?*Environment = null,
  
-    pub fn init(allocator: std.mem.Allocator, enclosing: ?*Environment) Error!Environment {
+    pub fn init(allocator: std.mem.Allocator, enclosing: ?*Environment) Environment {
         return Environment {
             .values = StringHashMap(?Object).init(allocator),
             .enclosing = enclosing, 
         };
     }
 
-    // TODO: reason about whether it makes sense to deinit the 
+    // TODO: implement deinit()
     pub fn deinit(self: *Environment) void {
         self.values.deinit(); 
-        // if (self.enclosing) |enclosing| {
-        //     enclosing.deinit(); 
-        // }
     }
 
-    pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) Error!void {
-        const copied_name = try allocator.alloc(u8, name.len);
+    pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) AllocationError!void {
+        const copied_name = allocator.alloc(u8, name.len) catch return err.outOfMemory();
         @memcpy(copied_name, name);
-        try self.values.put(copied_name, value);
+        self.values.put(copied_name, value) catch return err.outOfMemory();
     }
 
-    pub fn get(self: Environment, name: []const u8, allocator: std.mem.Allocator) RuntimeError!Object {
+    pub fn get(self: Environment, name: []const u8, allocator: std.mem.Allocator) EnvironmentError!Object {
         if (self.values.get(name)) |optional| {
             if (optional) |value| {
                 return value;
@@ -46,26 +45,24 @@ pub const Environment = struct {
                     allocator, 
                     "the variable '{s}' is uninitialized", 
                     .{name}
-                ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(null, error_msg, RuntimeError.UninitializedVariable, allocator);
+                ) catch return err.outOfMemory();
+                return err.errorMessage(EnvironmentError, null, error_msg, EnvironmentError.UninitalizedObject, allocator);
             }
         } else if (self.enclosing) |parent_environment| {
             return parent_environment.get(name, allocator);
         } else {
             const error_msg = std.fmt.allocPrint(
                 allocator, 
-                "cannot access undeclared variable '{s}' \nNOTE: Declare or initialize '{s}' with `var`", 
+                "cannot access undeclared object '{s}' \nNOTE: Declare or initialize '{s}' with `var` or `fun`", 
                 .{name, name}
-            ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(null, error_msg, RuntimeError.UndeclaredVariable, allocator);
+            ) catch return err.outOfMemory();
+            return err.errorMessage(EnvironmentError, null, error_msg, EnvironmentError.UndeclaredObject, allocator);
         }
     }
     
-    pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) RuntimeError!void {
-        // const copied_name = try allocator.alloc(u8, name.len);
-        // @memcpy(copied_name, name);
+pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) VariableError!void {
         if (self.values.get(name.lexeme)) |_| {
-            self.values.put(name.lexeme, value) catch return RuntimeError.AllocError;
+            self.values.put(name.lexeme, value) catch return err.outOfMemory();
         } else if (self.enclosing) |parent_environment| {
             try parent_environment.assign(name, value, allocator);
         } else {
@@ -73,19 +70,19 @@ pub const Environment = struct {
                 allocator, 
                 "cannot assign undeclared variable '{s}'. \nNOTE: Declare or initialize '{s}' with `var`", 
                 .{name.lexeme, name.lexeme}
-            ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(name.line, error_msg, RuntimeError.UndeclaredVariable, allocator);
+            ) catch return err.outOfMemory();
+            return err.errorMessage(VariableError, name.line, error_msg, VariableError.UndeclaredVariable, allocator);
         }
     }
 
-    pub fn print(self: Environment, allocator: std.mem.Allocator) RuntimeError!void {
+    // TODO: reimplement print()
+    pub fn print(self: Environment, allocator: std.mem.Allocator) AllocationError!void {
         std.debug.print("-----\nenvs:\n", .{});
 
         try self.blockPrint(0, allocator);
     }
 
-    // TODO: figure out backend of blockPrint
-    fn blockPrint(self: Environment, tabs: u8, allocator: std.mem.Allocator) RuntimeError!void {
+    fn blockPrint(self: Environment, tabs: u8, allocator: std.mem.Allocator) AllocationError!void {
         var spacing: []const u8 = "  "; 
         var i : u8 = 0;
 

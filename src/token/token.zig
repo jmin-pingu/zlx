@@ -72,11 +72,3 @@ pub const Token = struct {
 };
 
 
-test "literal_test" {
-    const x0 = Object{ .Identifier = "bar" };
-    // const x1 = Literal{ .String = "foo" };
-    // const x2 = Literal{ .Number = 10 };
-    // const x3 = Literal{ .Nil = null };
-    // const x4 = Literal{ .Bool = true };
-    std.debug.print("{}\n", .{x0.check_tag(Tag.Identifier)});
-}

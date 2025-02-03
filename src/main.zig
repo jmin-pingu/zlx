@@ -4,7 +4,7 @@ const ArrayList = std.ArrayList;
 const zlx = @import("zlx.zig");
 const Error = @import("error.zig").Error;
 
-pub fn main() Error!void {
+pub fn main() !void {
     try zlx.main();
 }
 

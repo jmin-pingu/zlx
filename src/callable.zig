@@ -2,17 +2,26 @@ const std = @import("std");
 const Interpreter = @import("interpreter.zig").Interpreter;
 const Object = @import("token/object.zig").Object;
 const Expr = @import("expr.zig").Expr;
-const Error = @import("error.zig").Error;
+const stmt = @import("stmt.zig");
+const AllocationError = @import("error.zig").AllocationError;
+const FunctionError = @import("error.zig").FunctionError;
 const ArrayList = std.ArrayList;
+
+// TODO: need the idea of a "trait bound" here
+pub const CallableType = union(enum) {
+    Declared: stmt.Function,
+    Native,
+};
 
 pub fn Callable() type {
     return struct {
-        const T = Error!Object;
+        const T = FunctionError!Object;
         const Self = @This();
         ptr: *anyopaque,
-        callFn: *const fn (*anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object)) T,
+        callFn: *const fn (*anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T,
         arityFn: *const fn (*anyopaque) usize,
-        toStringFn: *const fn (*anyopaque) Error![]const u8,
+        toStringFn: *const fn (*anyopaque, std.mem.Allocator) AllocationError![]const u8,
+        callableType: CallableType,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -21,9 +30,10 @@ pub fn Callable() type {
             if (ptr_info.Pointer.size != .One) @compileError("ptr must be a single item pointer");
         
             const gen = struct {
-                pub fn callImpl(pointer: *anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object)) T {
+
+                pub fn callImpl(pointer: *anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.call, .{self, interpreter, arguments});
+                    return @call(.auto, ptr_info.Pointer.child.call, .{self, interpreter, arguments, allocator});
                 }
 
                 pub fn arityImpl(pointer: *anyopaque) usize {
@@ -31,9 +41,9 @@ pub fn Callable() type {
                     return @call(.auto, ptr_info.Pointer.child.arity, .{self});
                 }
 
-                pub fn toStringImpl(pointer: *anyopaque) Error![]const u8 {
+                pub fn toStringImpl(pointer: *anyopaque, allocator: std.mem.Allocator) AllocationError![]const u8 {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.toString, .{self});
+                    return @call(.auto, ptr_info.Pointer.child.toString, .{self, allocator});
                 }
             };
 
@@ -42,19 +52,20 @@ pub fn Callable() type {
                 .callFn= gen.callImpl,
                 .toStringFn= gen.toStringImpl,
                 .arityFn= gen.arityImpl,
+                .callableType=@field(ptr, "callableType")
             };
         }
 
-        pub inline fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object)) T {
-            return self.callFn(self.ptr, interpreter, arguments);
+        pub inline fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T {
+            return self.callFn(self.ptr, interpreter, arguments, allocator);
         }
 
         pub inline fn arity(self: Self) usize {
             return self.arityFn(self.ptr);
         }
 
-        pub inline fn toString(self: Self) Error![]const u8 {
-            return self.toStringFn(self.ptr);
+        pub inline fn toString(self: Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
+            return self.toStringFn(self.ptr, allocator);
         }
 
         pub fn implementedBy(implementor: type) bool {

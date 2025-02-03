@@ -1,6 +1,8 @@
 const std = @import("std");
 
-const Error = @import("error.zig").Error;
+const err = @import("error.zig");
+const Error = err.Error;
+const AllocationError = err.AllocationError;
 // Type Imports
 const Expr= @import("expr.zig").Expr;
 const Token = @import("token/token.zig").Token;
@@ -33,7 +35,7 @@ pub const Return = struct {
         return visitor.visitFunctionStmt(self);
     }
 
-    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Error!Stmt {
+    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Stmt {
         return Stmt{ 
             .function= Function {
                 .name= name, 
@@ -54,12 +56,12 @@ pub const Function = struct {
         return visitor.visitFunctionStmt(self);
     }
 
-    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Error!Stmt {
+    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) AllocationError!Stmt {
         return Stmt{ 
             .function= Function {
                 .name= name, 
-                .params = params.clone() catch return Error.AllocError,
-                .body= body.clone() catch return Error.AllocError
+                .params = params.clone() catch return err.outOfMemory(),
+                .body= body.clone() catch return err.outOfMemory() 
             } 
         };
     }
@@ -73,7 +75,7 @@ pub const Break = struct {
         return visitor.visitBreakStmt(self);
     }
 
-    pub fn new(associated_condition: *Expr) Error!Stmt {
+    pub fn new(associated_condition: *Expr) Stmt {
         return Stmt{ .@"break"=Break{.associated_condition =associated_condition} };
     }
 };
@@ -87,8 +89,8 @@ pub const While = struct {
         return visitor.visitWhileStmt(self);
     }
 
-    pub fn new(condition: *Expr, body: Stmt, allocator: std.mem.Allocator) Error!Stmt {
-        const new_body = allocator.create(Stmt) catch return Error.AllocError;
+    pub fn new(condition: *Expr, body: Stmt, allocator: std.mem.Allocator) AllocationError!Stmt {
+        const new_body = allocator.create(Stmt) catch return err.outOfMemory();
         new_body.* = body;
         return Stmt{ .@"while"=While{.condition=condition, .body = new_body} };
     }
@@ -103,12 +105,12 @@ pub const If = struct {
         return visitor.visitIfStmt(self);
     }
 
-    pub fn new(condition: *Expr, then_branch: Stmt, else_branch: ?Stmt, allocator: std.mem.Allocator) Error!Stmt {
-        const then_b = allocator.create(Stmt) catch return Error.AllocError;
+    pub fn new(condition: *Expr, then_branch: Stmt, else_branch: ?Stmt, allocator: std.mem.Allocator) AllocationError!Stmt {
+        const then_b = allocator.create(Stmt) catch return err.outOfMemory();
 
         then_b.* = then_branch;
         if (else_branch) |value| {
-            const else_b = allocator.create(Stmt) catch return Error.AllocError;
+            const else_b = allocator.create(Stmt) catch return err.outOfMemory();
             else_b.* = value;
             return Stmt{ 
                 .@"if"= If{

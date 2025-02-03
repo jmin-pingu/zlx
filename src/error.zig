@@ -1,71 +1,73 @@
 const std = @import("std");
  
+pub const AllocationError = error {
+    OutOfMemory
+};
+
 pub const Error = error{
     UsageError,
-    SyntaxError,
-    OutOfMemory,
-    ParseError,
-    JSONError,
-    RuntimeError,
+} || AllocationError || FileError || RuntimeError || ParseError;
+
+pub const FileError = error{
+    StdoutError,
+    OpenError,
     ReadError,
-    WriteError,
-    FileError,
-    PrintError,
-    GenericError,
-    AllocError,
-    AssignmentError,
-    VariableShadow,
-    FunctionCallError,
-    TooManyArguments,
 };
 
-const SyntaxError = error {};
+pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError;
 
-pub const RuntimeError = error {
-    DivideByZero,
-    OperandError,
-    OperatorError,
-    AllocError,
+pub const FunctionError = error {
+    // TODO: think how to rename these
+    TooManyArguments,
+    FunctionCallError,
+    FunctionBodyError, 
+} || AllocationError;
+
+pub const ParseError = error {
+    EndOfFile,
+    SyntaxError
+} || AllocationError || FunctionError || VariableError;
+
+pub const ScannerError = error {
+    InvalidCharacter,
+    UnterminatedString,
+} || AllocationError;
+
+pub const VariableError = error {
     UninitializedVariable,
-    FunctionCallError,
     UndeclaredVariable,
-    TooManyArguments,
-};
+    AssignmentError, 
+} || AllocationError;
 
 
-// Responsibility is on the programmer to handle errors
-pub fn error_msg(line_number: usize, message: []const u8, err: Error, allocator: std.mem.Allocator) Error {
-    std.debug.print("{s}", .{std.fmt.allocPrint(allocator, "[line: {d}] {!}: {s}\n", .{line_number, err, message}) catch return Error.AllocError});
-    return err;
+pub const EnvironmentError = error {
+    UndeclaredObject,
+    UninitalizedObject,
+} || AllocationError;
+
+pub fn outOfMemory() AllocationError {
+    std.debug.print("[panic] out of memory\n", .{});
+    return AllocationError.OutOfMemory;
 }
 
-/// runtime_error_msg
-/// note, line_number is on the burden of the programmer to provider
-pub fn runtime_error_msg(line_number: ?usize, message: []const u8, err: RuntimeError, allocator: std.mem.Allocator) RuntimeError {
+pub fn errorMessage(comptime ErrorType: type, line_number: ?usize, message: []const u8, err: ErrorType, allocator: std.mem.Allocator) ErrorType {
+    if (@typeInfo(ErrorType) != .ErrorSet) @compileError("ErrorType must be an .ErrorSet");
+
     if (line_number) |num| {
         std.debug.print(
             "{s}", 
             .{
-                std.fmt.allocPrint(
-                    allocator, 
-                    "[line: {d}] {!}: {s}\n", 
-                    .{num, err, message}
-                ) catch return RuntimeError.AllocError
+                std.fmt.allocPrint(allocator, "[line: {d}] {!}: {s}\n", .{num, err, message}) catch return outOfMemory()
             }
         );
     } else {
         std.debug.print(
             "{s}", 
             .{
-                std.fmt.allocPrint(
-                    allocator, 
-                    "{!}: {s}\n", 
-                    .{err, message}
-                ) catch return RuntimeError.AllocError
+                std.fmt.allocPrint(allocator, "{!}: {s}\n", .{err, message}) catch return outOfMemory()
             }
         );
 
     }
-
     return err;
 }

@@ -1,7 +1,8 @@
 const std = @import("std");
 
 // Custom Imports
-const Error = @import("error.zig").Error;
+const err = @import("error.zig");
+const AllocationError = err.AllocationError;
 const Token = @import("token/token.zig").Token;
 const Object = @import("token/object.zig").Object;
 const ArrayList = std.ArrayList;
@@ -29,8 +30,8 @@ pub const Call = struct {
     paren: Token,
     arguments: ArrayList(*Expr),
         
-    pub fn new(callee: *Expr, paren: Token, arguments: ArrayList(*Expr), allocator: std.mem.Allocator) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    pub fn new(callee: *Expr, paren: Token, arguments: ArrayList(*Expr), allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .call=Call{ 
                 .callee=callee, .paren=paren, .arguments=arguments,
@@ -54,8 +55,8 @@ pub const Logical = struct {
         operator: Token, 
         right: *Expr, 
         allocator: std.mem.Allocator
-    ) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    ) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr { 
             .logical= Logical{ 
                 .left=left, .operator=operator, .right=right, 
@@ -78,8 +79,8 @@ pub const Binary = struct {
         operator: Token, 
         right: *Expr, 
         allocator: std.mem.Allocator
-    ) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    ) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr { 
             .binary= Binary{ 
                 .left=left, .operator=operator, .right=right, 
@@ -98,8 +99,8 @@ pub const Grouping = struct {
     pub fn new(
         expression: *Expr, 
         allocator: std.mem.Allocator
-    ) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    ) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return  err.outOfMemory();
         expr.* = Expr{ 
             .grouping= Grouping{ 
                 .expression=expression, 
@@ -116,8 +117,8 @@ pub const Grouping = struct {
 pub const Literal = struct {
     // NOTE: naming, I really don't like having LiteralValue in token.zig 
     value: Object,
-    pub fn new(value: Object, allocator: std.mem.Allocator) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    pub fn new(value: Object, allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .literal=Literal{ 
                 .value=value, 
@@ -134,8 +135,8 @@ pub const Literal = struct {
 pub const Unary = struct {
     operator: Token,
     right: *Expr,
-    pub fn new(operator: Token, right: *Expr, allocator: std.mem.Allocator) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    pub fn new(operator: Token, right: *Expr, allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .unary=Unary{ 
                 .operator=operator, .right=right, 
@@ -151,8 +152,8 @@ pub const Unary = struct {
 
 pub const Var = struct {
     name: Token,
-    pub fn new(name: Token, allocator: std.mem.Allocator) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    pub fn new(name: Token, allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .@"var"=Var{ 
                 .name=name,
@@ -169,8 +170,8 @@ pub const Var = struct {
 pub const Assign = struct {
     name: Token,
     value: *Expr,
-    pub fn new(name: Token, value: *Expr, allocator: std.mem.Allocator) *Expr {
-        const expr = allocator.create(Expr) catch unreachable;
+    pub fn new(name: Token, value: *Expr, allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .assign=Assign{ 
                 .name=name,

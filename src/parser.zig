@@ -11,8 +11,11 @@ const expr = @import("expr.zig");
 const Stmt = @import("stmt.zig").Stmt;
 const s = @import("stmt.zig");
 
-const Error = @import("error.zig").Error;
 const err = @import("error.zig");
+const Error = err.Error;
+const VariableError = err.VariableError;
+const FunctionError = err.FunctionError;
+const ParseError = err.ParseError;
 
 // TODO: Add more granular errors for ParserErrors
 const equality_match = [2]TokenType{TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL};
@@ -22,25 +25,27 @@ const comparison_match = [4]TokenType{TokenType.GREATER, TokenType.GREATER_EQUAL
 const term_match = [2]TokenType{TokenType.MINUS, TokenType.PLUS};
 
 // TODO: need to reason better about when to heap allocate
-// TODO: implement better error messaging in the parser
 pub const Parser = struct {
     tokens: ArrayList(Token),
     current: u64 = 0,
     allocator: std.mem.Allocator,
 
-    pub fn new(tokens: ArrayList(Token), allocator: std.mem.Allocator) Parser {
+    pub fn init(tokens: ArrayList(Token), allocator: std.mem.Allocator) Parser {
         return Parser{ .tokens = tokens, .allocator = allocator};
     }
 
-    pub fn parse(self: *Parser) Error!ArrayList(Stmt) {
+    // TODO: double-check logic for freeing! Need a better understanding of memory
+    // pub fn deinit(self: *Parser) void {
+    //     self.allocator.free(self.tokens);
+    // }
+ 
+    pub fn parse(self: *Parser) ParseError!ArrayList(Stmt) {
         var statements = ArrayList(Stmt).init(self.allocator);
         // TODO: do we need to dealloc the ArrayList(Stmt)
         while (!self.reachedEnd()) {
-            try statements.append(try self.declaration());
+            statements.append(try self.declaration()) catch return err.outOfMemory();
         }
         return statements;
-        // return self.expression() catch return Error.ParseError; 
-        //std.debug.panic("Panicked due to Parse Error");
     }
 
     // Parsing Statements
@@ -97,33 +102,39 @@ pub const Parser = struct {
     //
     // block          -> "{" declaration* "}" ;
     
-    fn declaration(self: *Parser) Error!Stmt {
+    fn declaration(self: *Parser) ParseError!Stmt {
         try {
             if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.function("function");
             if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
             return try self.statement();
         } catch {
+            // TODO: double check
             self.synchronize();
-            return Error.ParseError;
+            return ParseError.SyntaxError;
         };
     }
 
-    fn function(self: *Parser, kind: []const u8) Error!Stmt {
-        const name = try self.consume(TokenType.IDENTIFIER, try std.fmt.allocPrint(self.allocator, "Expect {s} name", .{kind}));
-        _ = try self.consume(TokenType.LEFT_PAREN, try std.fmt.allocPrint(self.allocator, "Expect '(' after {s} name", .{kind}));
+    fn function(self: *Parser, kind: []const u8) ParseError!Stmt {
+        var err_msg = std.fmt.allocPrint(self.allocator, "Expect {s} name", .{kind}) catch return err.outOfMemory();
+        const name = try self.consume(TokenType.IDENTIFIER, err_msg);
+        err_msg = std.fmt.allocPrint(self.allocator, "Expect '(' after {s} name", .{kind}) catch return err.outOfMemory();
+        _ = try self.consume(TokenType.LEFT_PAREN, "");
+
         var parameters = ArrayList(Token).init(self.allocator);
         while (!self.check(TokenType.RIGHT_PAREN)) {
-            if (parameters.items.len >= 255) return err.error_msg(self.peek().line, "Can't have more than 255 parameters", Error.TooManyArguments, self.allocator);
-            try parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name"));
+            if (parameters.items.len >= 255) return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 parameters", ParseError.TooManyArguments, self.allocator);
+
+            parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
             _ = self.match(1, [1]TokenType{TokenType.COMMA});
         }
-        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after paremeters");
-        _ = try self.consume(TokenType.LEFT_BRACE, try std.fmt.allocPrint(self.allocator, "Expect '{c}' before {s} body", .{'{', kind}));
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters");
+        err_msg = std.fmt.allocPrint(self.allocator, "Expect '{{' before {s} body", .{kind}) catch return err.outOfMemory();
+        _ = try self.consume(TokenType.LEFT_BRACE, err_msg);
         const body = try self.block();
         return s.Function.new(name, parameters, body);
     }
 
-    fn varDeclaration(self: *Parser) Error!Stmt {
+    fn varDeclaration(self: *Parser) ParseError!Stmt {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
         var initializer: ?*expr.Expr = null; 
 
@@ -132,8 +143,8 @@ pub const Parser = struct {
         return s.Var.new(name, initializer);
     }
 
-    fn statement(self: *Parser) Error!Stmt {
-        if (self.match(1, [1]TokenType{TokenType.BREAK})) return err.error_msg(self.peek().line, "break not nested within control flow", Error.SyntaxError, self.allocator);
+    fn statement(self: *Parser) ParseError!Stmt {
+        if (self.match(1, [1]TokenType{TokenType.BREAK})) return err.errorMessage(ParseError, self.peek().line, "break not nested within control flow", ParseError.SyntaxError, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
@@ -142,7 +153,7 @@ pub const Parser = struct {
         return self.expressionStatement();
     }
 
-    fn forStatement(self: *Parser) Error!Stmt {
+    fn forStatement(self: *Parser) ParseError!Stmt {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'for'");
         var initializer: ?Stmt = undefined;
         if (self.match(1, [1]TokenType{TokenType.SEMICOLON})) {
@@ -165,14 +176,13 @@ pub const Parser = struct {
         }         
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
 
-        condition = expr.Literal.new(Object{.Bool = true}, self.allocator);
+        condition = try expr.Literal.new(Object{.Bool = true}, self.allocator);
         var body = try self.breakStatement(condition.?);
 
         if (increment != null) {
             var statements = ArrayList(Stmt).init(self.allocator);
-
-            statements.append(body) catch return Error.AllocError;
-            statements.append(s.Expression.new(increment.?)) catch return Error.AllocError;
+            statements.append(body) catch return err.outOfMemory();
+            statements.append(s.Expression.new(increment.?)) catch return err.outOfMemory();
             body = s.Block.new(statements);
         }
 
@@ -180,22 +190,22 @@ pub const Parser = struct {
 
         if (initializer != null) {
             var statements = ArrayList(Stmt).init(self.allocator);
-            statements.append(initializer.?) catch return Error.AllocError;
-            statements.append(body) catch return Error.AllocError;
+            statements.append(initializer.?) catch return err.outOfMemory();
+            statements.append(body) catch return err.outOfMemory();
             body = s.Block.new(statements);
         }
         return body;
     }
 
-    fn whileStatement(self: *Parser) Error!Stmt {
+    fn whileStatement(self: *Parser) ParseError!Stmt {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'");
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
         const body = try self.breakStatement(condition);
-        return s.While.new(condition, body, self.allocator);
+        return try s.While.new(condition, body, self.allocator);
     }
 
-    fn ifStatement(self: *Parser) Error!Stmt {
+    fn ifStatement(self: *Parser) ParseError!Stmt {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
@@ -208,8 +218,7 @@ pub const Parser = struct {
     }
 
 
-    fn breakStatement(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
-        // TODO: issue with identifying multiple break's per block
+    fn breakStatement(self: *Parser, break_condition: *expr.Expr) ParseError!Stmt {
         if (self.match(1, [1]TokenType{TokenType.BREAK}) and self.match(1, [1]TokenType{TokenType.SEMICOLON})) return s.Break.new(break_condition);
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.breakIfStatement(break_condition);
@@ -219,24 +228,23 @@ pub const Parser = struct {
         return self.expressionStatement();
     }
 
-    fn breakBlock(self: *Parser, condition: *expr.Expr) Error!ArrayList(Stmt) {
+    fn breakBlock(self: *Parser, condition: *expr.Expr) ParseError!ArrayList(Stmt) {
         var break_count: u8 = 0;
         var statements = ArrayList(s.Stmt).init(self.allocator);
         // TODO: still issue with managing break count.
         while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) {
-            if (break_count > 1) return err.error_msg(self.peek().line, "break appears multiple times in block", Error.SyntaxError, self.allocator);
+            if (break_count > 1) return err.errorMessage(ParseError, self.peek().line, "break appears multiple times in block", ParseError.SyntaxError, self.allocator);
             const stmt = try self.breakDeclaration(condition);
-            switch (stmt) {
-                .@"break" => break_count += 1,
-                else => {}
-            }
+            if (stmt == .@"break") break_count += 1;
+
             try statements.append(stmt);
         }
-        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect ';' after block");
+
+        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
         return statements;
     }
 
-    fn breakIfStatement(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
+    fn breakIfStatement(self: *Parser, break_condition: *expr.Expr) ParseError!Stmt {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'if'");
         const condition = try self.expression();
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after if condition");
@@ -249,7 +257,7 @@ pub const Parser = struct {
     }
 
 
-    fn breakDeclaration(self: *Parser, break_condition: *expr.Expr) Error!Stmt {
+    fn breakDeclaration(self: *Parser, break_condition: *expr.Expr) ParseError!Stmt {
         try {
             if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.function("function");
             if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
@@ -260,20 +268,20 @@ pub const Parser = struct {
         };
     }
 
-    fn block(self: *Parser) Error!ArrayList(Stmt) {
+    fn block(self: *Parser) ParseError!ArrayList(Stmt) {
         var statements = ArrayList(s.Stmt).init(self.allocator);
-        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) try statements.append(try self.declaration());
+        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) statements.append(try self.declaration()) catch return err.outOfMemory();
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
         return statements;
     }
-    fn printStatement(self: *Parser) Error!Stmt {
-        const e = self.expression() catch return Error.ParseError; 
+    fn printStatement(self: *Parser) ParseError!Stmt {
+        const e = try self.expression(); 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value");
         return s.Print.new(e);
     }
     
-    fn expressionStatement(self: *Parser) Error!Stmt {
-        const e = self.expression() catch return Error.ParseError; 
+    fn expressionStatement(self: *Parser) ParseError!Stmt {
+        const e = try self.expression(); 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after expression");
         return s.Expression.new(e);
     }
@@ -297,108 +305,104 @@ pub const Parser = struct {
     // primary        -> NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
 
-    fn expression(self: *Parser) Error!*expr.Expr {
+    fn expression(self: *Parser) ParseError!*expr.Expr {
         return try self.assignment();
     }
 
-    fn assignment(self: *Parser) Error!*expr.Expr {
+    fn assignment(self: *Parser) ParseError!*expr.Expr {
         // First naively evaluate the token before the '='
         const greedy_expr = try self.logic_or();
         var equals: Token = undefined;
         var value: *expr.Expr = undefined;
 
-        // Check if we are indeed "assigning" 
-        // Step-forward tokens until '=' 
         if (self.match(1, [1]TokenType{TokenType.EQUAL})) {
             equals = self.previous();
             value = try self.assignment();
 
-            // Ensure that the naively evaluated token is a Var (variable)
             switch (greedy_expr.*) {
                 .@"var"=> |@"var"| {
                     const name = @"var".name;
-                    return expr.Assign.new(name, value, self.allocator);
+                    return try expr.Assign.new(name, value, self.allocator);
                 },
                 else => {
-                    return Error.AssignmentError;
+                    // TODO: MESSAGE: expected either a variable or declaration on LHS of =
+                    return VariableError.AssignmentError;
                 }
             }
         }
         return greedy_expr;
     }
 
-    fn logic_or(self: *Parser) Error!*expr.Expr {
+    fn logic_or(self: *Parser) ParseError!*expr.Expr {
         var left_expr = try self.logic_and();
-
         while (self.match(1, [1]TokenType{TokenType.OR})) {
             const operator = self.previous();
             const right = try self.logic_and();
-            left_expr = expr.Logical.new(left_expr, operator, right, self.allocator);
+            left_expr = try expr.Logical.new(left_expr, operator, right, self.allocator);
         }
         return left_expr;
     }
 
-    fn logic_and(self: *Parser) Error!*expr.Expr { 
+    fn logic_and(self: *Parser) ParseError!*expr.Expr { 
         var left_expr = try self.equality();
-
         while (self.match(1, [1]TokenType{TokenType.AND})) {
             const operator = self.previous();
             const right = try self.equality();
-            left_expr = expr.Logical.new(left_expr, operator, right, self.allocator);
+            left_expr = try expr.Logical.new(left_expr, operator, right, self.allocator);
         }
         return left_expr;
     }
 
-    fn equality(self: *Parser) Error!*expr.Expr {
+    fn equality(self: *Parser) ParseError!*expr.Expr {
         var e = try self.comparison();
         while (self.match(equality_match.len, equality_match)) {
             const operator = self.previous();
             const right = try self.comparison();
-            e = expr.Binary.new(e, operator, right, self.allocator);
+            e = try expr.Binary.new(e, operator, right, self.allocator);
         }
         return e;
     }
 
-    fn comparison(self: *Parser) Error!*expr.Expr {
+    fn comparison(self: *Parser) ParseError!*expr.Expr {
         var e = try self.term();
         while (self.match(comparison_match.len, comparison_match)) {
             const operator = self.previous();
             const right = try self.term();
-            e = expr.Binary.new(e, operator, right, self.allocator);
+            e = try expr.Binary.new(e, operator, right, self.allocator);
         }
         return e;
     }
 
-    fn term(self: *Parser) Error!*expr.Expr {
+    fn term(self: *Parser) ParseError!*expr.Expr {
         var e = try self.factor();
         while (self.match(term_match.len, term_match)) {
             const operator = self.previous();
             const right = try self.factor();
-            e = expr.Binary.new(e, operator, right, self.allocator);
+            e = try expr.Binary.new(e, operator, right, self.allocator);
         }
         return e;
     }
 
-    fn factor(self: *Parser) Error!*expr.Expr {
+    fn factor(self: *Parser) ParseError!*expr.Expr {
         var e = try self.unary();
         while (self.match(factor_match.len, factor_match)) {
             const operator = self.previous();
             const right = try self.unary();
-            e = expr.Binary.new(e, operator, right, self.allocator);
+            e = try expr.Binary.new(e, operator, right, self.allocator);
         }
         return e;
     }
 
-    fn unary(self: *Parser) Error!*expr.Expr {
+    fn unary(self: *Parser) ParseError!*expr.Expr {
         if (self.match(unary_match.len, unary_match)) {
             const operator = self.previous();
             const right = try self.unary();
-            return expr.Unary.new(operator, right, self.allocator);
+            return try expr.Unary.new(operator, right, self.allocator);
         }
         return try self.call();
     }
 
-    fn call(self: *Parser) Error!*expr.Expr {
+    fn call(self: *Parser) ParseError!*expr.Expr {
         var builder_expr = try self.primary();
         while (true) {
             if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
@@ -410,42 +414,37 @@ pub const Parser = struct {
         return builder_expr;
     } 
 
-    fn finishCall(self: *Parser, callee: *expr.Expr) Error!*expr.Expr {
+    fn finishCall(self: *Parser, callee: *expr.Expr) ParseError!*expr.Expr {
         var arguments = ArrayList(*expr.Expr).init(self.allocator);
         if (!self.check(TokenType.RIGHT_PAREN)) {
             if (arguments.items.len >= 255) {
-                return err.error_msg(self.peek().line, "Can't have more than 255 arguments", Error.TooManyArguments, self.allocator);
+                return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 arguments", FunctionError.TooManyArguments, self.allocator);
             }
-            try arguments.append(try self.expression());
+            arguments.append(try self.expression()) catch return err.outOfMemory();
             while (self.match(1, [1]TokenType{TokenType.COMMA})) {
-                try arguments.append(try self.expression());
+                arguments.append(try self.expression()) catch return err.outOfMemory();
             }
         }
-
         const right_paren = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments");
-        // TODO: the fuck is callee in this case
-        return expr.Call.new(callee, right_paren, arguments, self.allocator);
-
+        return try expr.Call.new(callee, right_paren, arguments, self.allocator);
     }
 
-    fn primary(self: *Parser) Error!*expr.Expr {
-        if (self.match(1, [1]TokenType{TokenType.FALSE})) return expr.Literal.new(Object{.Bool=false}, self.allocator);
-        if (self.match(1, [1]TokenType{TokenType.TRUE})) return expr.Literal.new(Object{.Bool=true}, self.allocator);
-        if (self.match(1, [1]TokenType{TokenType.NIL})) return expr.Literal.new(Object{.Nil=null}, self.allocator);
-        // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate
-        if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return expr.Literal.new(self.previous().literal, self.allocator);
-
-        if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return expr.Var.new(self.previous(), self.allocator);
-        
+    fn primary(self: *Parser) ParseError!*expr.Expr {
+        if (self.match(1, [1]TokenType{TokenType.FALSE})) return try expr.Literal.new(Object{.Bool=false}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.TRUE})) return try expr.Literal.new(Object{.Bool=true}, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.NIL})) return try expr.Literal.new(Object{.Nil=null}, self.allocator);
+        // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate and copy to allocated memory
+        if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return try expr.Literal.new(self.previous().literal, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
         if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
             const e = try self.expression();
             _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression");
-            return expr.Grouping.new(e, self.allocator);
+            return try expr.Grouping.new(e, self.allocator);
         }
-        return Error.ParseError;
+        // TODO: think of a better error name for the future
+        return ParseError.SyntaxError;
     }
 
-    // SYNCHRONIZER FOR RECURSIVE DESCENT PARSER
     fn synchronize(self: *Parser) void {
         self.advance();
         while (!self.reachedEnd()) {
@@ -459,17 +458,21 @@ pub const Parser = struct {
         }
     }
 
-    // ERROR HANDLER
-    fn consume(self: *Parser, ttype: TokenType, message: []const u8) Error!Token {
+    fn consume(self: *Parser, ttype: TokenType, error_msg: []const u8) ParseError!Token {
         if (self.check(ttype)) return self.advance();
-
         const error_token = self.peek();
         if (error_token.ttype == TokenType.EOF) {
-            std.debug.print("[line: {d}, near end] {s}\n",.{error_token.line, message});
-        } else {
-            std.debug.print("[line: {d}, near '{s}'] {s}\n",.{error_token.line, error_token.lexeme, message});
-        }
-        return Error.ParseError;
+            std.debug.print("[line: {d}, near end] {s}\n",.{error_token.line, error_msg});
+            // err_lib.errorMessage();
+            return ParseError.EndOfFile;
+        } 
+        std.debug.print("[line: {d}, near '{s}'] {s}\n",.{error_token.line, error_token.lexeme, error_msg});
+        
+        // TODO: maps all ttypes to appropriate errors
+        // const mapped_error = switch (ttype) {
+        //     else => {}
+        // };
+        return ParseError.SyntaxError;
     }
     
     // HELPER FUNCTIONS
@@ -505,10 +508,6 @@ pub const Parser = struct {
         return self.tokens.items[self.current-1];
     }
 
-    // TODO: double-check logic for freeing! Need a better understanding of memory
-    // pub fn deinit(self: *Parser) void {
-    //     self.allocator.free(self.tokens);
-    // }
 };
 
 test "parser: helper method (`advance`, `peek`, `previous`) functionality" {

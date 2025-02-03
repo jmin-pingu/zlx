@@ -15,42 +15,47 @@ const StmtVisitor = @import("stmt.zig").Visitor;
 
 const Function = @import("function.zig").Function;
 const Callable = @import("callable.zig").Callable;
+const CallableType = @import("callable.zig").CallableType;
 
 const Environment = @import("environment.zig").Environment;
 
-const RuntimeError = @import("error.zig").RuntimeError;
-const Error = @import("error.zig").Error;
 const err = @import("error.zig");
+const RuntimeError = err.RuntimeError;
+const AllocationError = err.AllocationError;
+const FunctionError = err.FunctionError;
+
 
 // TODO: rethink this struct and whether I want the `Visitor`s as fields
+// TODO: Interpreter defines RuntimeError land
 pub const Interpreter = struct {
     const Self = @This();
     const T: type = RuntimeError!Object;
     const stmt_T: type = RuntimeError!void;
+
     allocator: std.mem.Allocator,
     environment: Environment,
     globals: *Environment,
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
-    pub fn init(allocator: std.mem.Allocator) Error!Self {
-        // when initializing the interpreter, the environment is the root environment
-        var env = try Environment.init(allocator, null);
-        const temp = .{ 
+    pub fn init(allocator: std.mem.Allocator) RuntimeError!Self {
+        var env = Environment.init(allocator, null);
+        return .{ 
             .environment= env,
             .globals = &env,
             .allocator=allocator
         };
-        // TODO: stuff native functions into global scope
-        // TODO: need to figure out how to incorporate native functions
+
         // const Clock = struct {
         //     const S = @This();
+        //     callableType: CallableType = CallableType{.Native},
 
         //     pub fn arity(self: *S) usize {
         //         _ = self;
         //         return 0;
         //     }
 
-        //     pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object)) Error!Object {
+        //     pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object), alloc: std.mem.Allocator) FunctionError!Object {
+        //         _ = alloc;
         //         _ = self;
         //         _ = interpreter;
         //         _ = arguments;
@@ -58,11 +63,11 @@ pub const Interpreter = struct {
         //         return Object{.Nil = null};
         //     }
 
-        //     pub fn toString(self: *S) []const u8{
+        //     pub fn toString(self: *S, alloc: std.mem.Allocator) AllocationError![]const u8{
         //         _ = self;
+        //         _ = alloc;
         //         return "<native fn>";
         //     }
-
 
         //     pub fn initCallable(self: *S) Callable() {
         //         return Callable().init(self);
@@ -71,24 +76,16 @@ pub const Interpreter = struct {
         // var clock = Clock{};
 
         // var fn_ref = try allocator.create(Function);
-        // fn_ref.* = Function.init(null, allocator) catch return Error.AllocError;
+        // fn_ref.* = Function.init(null, allocator);
         // fn_ref.callable = clock.initCallable();
         // try temp.globals.define("clock", Object{.Function = fn_ref}, allocator);
-        return temp;
     }
 
-    pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) Error!void {
+    pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) RuntimeError!void {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
-            // std.debug.print("interpreting {any}\n", .{statement});
-            self.execute(statement) catch |runtime_error| {
-                if (runtime_error == RuntimeError.AllocError) {
-                    // Do nothing upon allocation error
-                    err.runtime_error_msg(null, "allocation error at runtime", runtime_error, self.allocator) catch {};
-                }
-                return Error.RuntimeError;
-            };
-            // Uncomment for debugging environments
+            try self.execute(statement);
+            // Uncomment for debugging envs
             // self.environment.print(self.allocator) catch return Error.AllocError;
         }     
     }
@@ -118,16 +115,15 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
-        const fn_ref = self.allocator.create(Function) catch return RuntimeError.AllocError;
-        fn_ref.* = Function.init(stmt, self.allocator) catch return RuntimeError.AllocError;
+        const fn_ref = self.allocator.create(Function) catch return err.outOfMemory();
+        fn_ref.* = Function.init(stmt);
         // const callable_ref = self.allocator.create(Callable()) catch return RuntimeError.AllocError;
        
-        std.debug.print("declaring function {s}, {any}\n\n", .{fn_ref.initCallable().toString() catch return RuntimeError.AllocError, fn_ref.initCallable().arity()});
-        self.environment.define(stmt.name.lexeme, Object{.Function=fn_ref}, self.allocator) catch return RuntimeError.AllocError;
+        try self.environment.define(stmt.name.lexeme, Object{.Function=fn_ref}, self.allocator);
     }
 
     pub fn visitBreakStmt(self: *Self, stmt: s.Break) stmt_T {
-        stmt.associated_condition.* = e.Literal.new(Object{.Bool = false}, self.allocator).*;
+        stmt.associated_condition.* = (try e.Literal.new(Object{.Bool = false}, self.allocator)).*;
         return;
     }
 
@@ -146,26 +142,27 @@ pub const Interpreter = struct {
     }
 
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
-        const enclosed_environment = self.allocator.create(Environment) catch return RuntimeError.AllocError;
+        const enclosed_environment = self.allocator.create(Environment) catch return err.outOfMemory();
         enclosed_environment.* = self.environment;
 
         const block_environment = Environment.init(
             self.allocator, 
            enclosed_environment 
-        ) catch return RuntimeError.AllocError;
+        );
         
-        _ = self.executeBlock(
+        // TODO: rethink messaging for block
+        _ = try self.executeBlock(
             stmt.statements, 
             block_environment
-        ) catch |runtime_err| return runtime_err;
+        );
     }
 
     pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
-        const parent_environment = self.environment; // move
+        const parent_environment = self.environment; 
+        self.environment = environment;
         defer self.environment = parent_environment; 
         errdefer self.environment = parent_environment;
 
-        self.environment = environment;
         for (statements.items) |stmt| {
             // TODO: issue, if we execute a break, how do we jump out?
             switch (stmt) {
@@ -174,39 +171,39 @@ pub const Interpreter = struct {
                     break;
                 },
                 else => {
-                    std.debug.print("{any}\n", .{stmt});
                     try self.execute(stmt);
                 }
             }
         }
     }
 
-    // TODO: what if we change stmt to return value but don't do anything with it for debugging?
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
         const value = self.evaluate(stmt.expression) catch |runtime_err| return runtime_err;
         switch (stmt.expression.*) {
             .assign => {},
             else => {
-                const literal = try value.to_string(self.allocator);
-                std.debug.print("{s}\n", .{literal});
+                if (value != .Nil) {
+                    const literal = try value.toString(self.allocator);
+                    std.debug.print("{s}\n", .{literal});
+                }
             }
         }
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
         const value = try self.evaluate(stmt.expression);
-        std.debug.print("{s}\n", .{try value.to_string(self.allocator)});
+        std.debug.print("{s}\n", .{try value.toString(self.allocator)});
     }
 
     pub fn visitVarStmt(self: *Self, stmt: s.Var) stmt_T {
-        const value = self.allocator.create(Object) catch return RuntimeError.AllocError;
+        const value = self.allocator.create(Object) catch return err.outOfMemory();
         if (stmt.initializer) |checked_initializer| {
             // Instantiation
             value.* = try self.evaluate(checked_initializer);
-            self.environment.define(stmt.name.lexeme, value.*, self.allocator) catch return RuntimeError.AllocError;
+            try self.environment.define(stmt.name.lexeme, value.*, self.allocator);
         } else {
             // Declaration
-            self.environment.define(stmt.name.lexeme, null, self.allocator) catch return RuntimeError.AllocError;
+            try self.environment.define(stmt.name.lexeme, null, self.allocator);
         }
     }
 
@@ -216,7 +213,7 @@ pub const Interpreter = struct {
         const callee = try self.evaluate(expr.callee);
         var arguments = ArrayList(Object).init(self.allocator);
         for (expr.arguments.items) |arg| {
-            arguments.append(try self.evaluate(arg)) catch return RuntimeError.AllocError;
+            arguments.append(try self.evaluate(arg)) catch return err.outOfMemory();
         }
 
         const function = switch (callee) {
@@ -224,41 +221,39 @@ pub const Interpreter = struct {
             else => {
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
-                    "function not defined", 
+                    "calling undeclared function", 
                     .{}
-                ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.UndeclaredObject, self.allocator);
             },
         };
 
-        std.debug.print("FUNC_CALL: {s}, arity: {d}, args: {any}\n", .{function.toString() catch return RuntimeError.AllocError, function.arity(), arguments}) ;
         if (arguments.items.len != function.arity()) {
             const err_msg = std.fmt.allocPrint(
                 self.allocator, 
                 "expected {d} arguments, got {d}", 
                 .{arguments.items.len, function.arity()}
-            ) catch return RuntimeError.AllocError;
-            return err.runtime_error_msg(expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
+            ) catch return err.outOfMemory();
+            return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
              
         }
-        return function.call(self, arguments) catch return RuntimeError.FunctionCallError;
+        return try function.call(self, arguments, self.allocator);
 
     }
 
     pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
         const value = try self.evaluate(expr.value);
-        try self.environment.assign(expr.name, value, self.allocator);
+        self.environment.assign(expr.name, value, self.allocator) catch return err.outOfMemory();
         return value;
     }
 
     pub fn visitVarExpr(self: *Self, expr: e.Var) T {
-        std.debug.print("getting: {s}\n", .{expr.name.lexeme});
-        const variable = try self.environment.get(expr.name.lexeme, self.allocator);
+        const variable = self.environment.get(expr.name.lexeme, self.allocator) catch return err.outOfMemory(); // map to Runtime error
         return variable;
     }
 
     pub fn visitLogicalExpr(self: *Self, expr: e.Logical) T {
-        const left = try self.evaluate(expr.left);
+        const left = try self.evaluate(expr.left); 
         switch (expr.operator.ttype) {
             TokenType.OR => if (left.isTruthy()) return left,
             TokenType.AND => if (!left.isTruthy()) return left, 
@@ -273,46 +268,45 @@ pub const Interpreter = struct {
 
         return switch (expr.operator.ttype) {
             TokenType.MINUS => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Number = left.Number - right.Number};
             },
             TokenType.SLASH => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Number = left.Number / right.Number};
 
             },
             TokenType.STAR => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Number = left.Number * right.Number};
             },
             TokenType.PLUS => {
-                if (!left.same_tags(right, Tag.String) and !left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
-                if (left.check_tag(Tag.String)) {
+                if (!left.sameTags(right, Tag.String) and !left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (left.checkTag(Tag.String)) {
                     const new_string = std.fmt.allocPrint(
                         self.allocator, 
                         "{s}{s}", 
                         .{left.String, right.String}
-                    ) catch return RuntimeError.AllocError;
+                    ) catch return err.outOfMemory();
                     return Object{ .String = new_string};
-
                 } else {
                     return Object{ .Number = left.Number + right.Number};
                 }
             },
             TokenType.GREATER => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Bool = left.Number > right.Number};
             },
             TokenType.GREATER_EQUAL => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Bool = left.Number >= right.Number};
             },
             TokenType.LESS => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Bool = left.Number < right.Number};
             },
             TokenType.LESS_EQUAL => {
-                if (!left.same_tags(right, Tag.Number)) return RuntimeError.OperandError;
+                if (!left.sameTags(right, Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Bool = left.Number <= right.Number};
             },
             TokenType.BANG_EQUAL => {
@@ -326,24 +320,21 @@ pub const Interpreter = struct {
             }
         } catch |runtime_err| switch (runtime_err) {
             .OperatorError => {
-                std.debug.print("reached\n", .{});
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
                     "operator {s} is not a binary operator", 
                     .{expr.operator.lexeme}
-                ) catch return RuntimeError.AllocError;
-                std.debug.print("reached\n", .{});
-                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
             },
             .OperandError => {
-                std.debug.print("reached\n", .{});
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
-                    "operands {any} and {any} are not compatible", 
-                    .{left, right}
-                ) catch return RuntimeError.AllocError;
-                std.debug.print("reached\n", .{});
-                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+                    "operands {any} and {any} are not compatible with the operator {s}", 
+                    // TODO: double-check impl
+                    .{left, right, expr.operator.lexeme}
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
             }, 
             else => return runtime_err
         };
@@ -362,8 +353,7 @@ pub const Interpreter = struct {
         const right = try self.evaluate(expr.right);
         return switch (expr.operator.ttype) {
             TokenType.MINUS => {
-                // TODO: check numeric
-                if (!right.check_tag(Tag.Number)) return RuntimeError.OperandError;
+                if (!right.checkTag(Tag.Number)) return RuntimeError.OperandError;
                 return Object{ .Number = -right.Number};
             },
             TokenType.BANG => {
@@ -378,16 +368,16 @@ pub const Interpreter = struct {
                     self.allocator, 
                     "operator {s} is not a unary operator", 
                     .{expr.operator.lexeme}
-                ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
             },
             .OperandError => {
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
                     "operand {any} is not compatible with operator {s}", 
                     .{right, expr.operator.lexeme}
-                ) catch return RuntimeError.AllocError;
-                return err.runtime_error_msg(expr.operator.line, err_msg, runtime_err, self.allocator);
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
             }, 
             else => return runtime_err
         };
@@ -418,7 +408,7 @@ test "scanner" {
         interpreter.execute(statement) catch |runtime_error| {
             if (runtime_error == RuntimeError.AllocError) {
                 // Do nothing upon allocation error
-                err.runtime_error_msg(null, "allocation error at runtime", runtime_error, allocator) catch {};
+                err.errorMessage(RuntimeError, null, "allocation error at runtime", runtime_error, allocator) catch {};
             }
         };
     }     

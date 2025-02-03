@@ -3,7 +3,8 @@
 
 # todo
 - [ ] Need to improve structure (naming, modules, and organization). 
-- [ ] Need to improve error tooling, messaging, and handling.
+- [ ] KEY: Need to improve error tooling, messaging, and handling.
+- [ ] KEY: need to reason about interfaces
 - [ ] Need to better actively think about memory management
 - [ ] Need to better think about runtime v. comptime
 - [ ] Figure out Zig build system.
