@@ -6,6 +6,7 @@ const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
 const Object= @import("token/object.zig").Object;
 const Tag = @import("token/object.zig").Tag;
+const FunctionType = @import("token/object.zig").FunctionType;
 
 const e= @import("expr.zig");
 const ExprVisitor = @import("expr.zig").Visitor;
@@ -15,7 +16,6 @@ const StmtVisitor = @import("stmt.zig").Visitor;
 
 const Function = @import("function.zig").Function;
 const Callable = @import("callable.zig").Callable;
-const CallableType = @import("callable.zig").CallableType;
 
 const Environment = @import("environment.zig").Environment;
 
@@ -33,60 +33,65 @@ pub const Interpreter = struct {
     const stmt_T: type = RuntimeError!void;
 
     allocator: std.mem.Allocator,
-    environment: Environment,
+    environment: *Environment,
     globals: *Environment,
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
     pub fn init(allocator: std.mem.Allocator) RuntimeError!Self {
-        var env = Environment.init(allocator, null);
-        return .{ 
-            .environment= env,
-            .globals = &env,
+        const env_ref = allocator.create(Environment) catch return err.outOfMemory();
+        env_ref.* = Environment.init(allocator, null);
+        const temp = .{ 
+            .environment= env_ref,
+            .globals = env_ref,
             .allocator=allocator
         };
 
-        // const Clock = struct {
-        //     const S = @This();
-        //     callableType: CallableType = CallableType{.Native},
+        const Clock = struct {
+            const S = @This();
 
-        //     pub fn arity(self: *S) usize {
-        //         _ = self;
-        //         return 0;
-        //     }
+            pub fn arity(self: *S) usize {
+                _ = self;
+                return 0;
+            }
 
-        //     pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object), alloc: std.mem.Allocator) FunctionError!Object {
-        //         _ = alloc;
-        //         _ = self;
-        //         _ = interpreter;
-        //         _ = arguments;
-        //         std.debug.print("{d}", .{@divFloor(std.time.milliTimestamp(), 1000)});
-        //         return Object{.Nil = null};
-        //     }
+            pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object), alloc: std.mem.Allocator) FunctionError!Object {
+                _ = alloc;
+                _ = self;
+                _ = interpreter;
+                _ = arguments;
+                std.debug.print("{d}\n", .{@divFloor(std.time.milliTimestamp(), 1000)});
+                return Object{.Nil = null};
+            }
 
-        //     pub fn toString(self: *S, alloc: std.mem.Allocator) AllocationError![]const u8{
-        //         _ = self;
-        //         _ = alloc;
-        //         return "<native fn>";
-        //     }
+            pub fn toString(self: *S, alloc: std.mem.Allocator) AllocationError![]const u8{
+                _ = self;
+                _ = alloc;
+                return "<native fn>";
+            }
 
-        //     pub fn initCallable(self: *S) Callable() {
-        //         return Callable().init(self);
-        //     }
-        // };
-        // var clock = Clock{};
+            pub fn initCallable(self: *S) Callable() {
+                return Callable().init(self);
+            }
+        };
 
-        // var fn_ref = try allocator.create(Function);
-        // fn_ref.* = Function.init(null, allocator);
-        // fn_ref.callable = clock.initCallable();
-        // try temp.globals.define("clock", Object{.Function = fn_ref}, allocator);
+        var clock = Clock{};
+        const fntype_ref = allocator.create(FunctionType) catch return err.outOfMemory();
+        fntype_ref.* = FunctionType{ .Native = clock.initCallable()};
+
+        try temp.globals.define(
+            "clock", 
+            Object{.Function = fntype_ref}, 
+            allocator);
+
+        return temp;
     }
 
     pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) RuntimeError!void {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
             try self.execute(statement);
-            // Uncomment for debugging envs
-            // self.environment.print(self.allocator) catch return Error.AllocError;
+            // DEBUG: environments
+            // self.environment.print(self.allocator) catch return err.outOfMemory();
         }     
     }
 
@@ -115,11 +120,13 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
+        const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
         const fn_ref = self.allocator.create(Function) catch return err.outOfMemory();
         fn_ref.* = Function.init(stmt);
+        fntype_ref.*.Declared = fn_ref;
         // const callable_ref = self.allocator.create(Callable()) catch return RuntimeError.AllocError;
        
-        try self.environment.define(stmt.name.lexeme, Object{.Function=fn_ref}, self.allocator);
+        try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
     }
 
     pub fn visitBreakStmt(self: *Self, stmt: s.Break) stmt_T {
@@ -142,8 +149,8 @@ pub const Interpreter = struct {
     }
 
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
-        const enclosed_environment = self.allocator.create(Environment) catch return err.outOfMemory();
-        enclosed_environment.* = self.environment;
+        var enclosed_environment = self.allocator.create(Environment) catch return err.outOfMemory();
+        enclosed_environment = self.environment;
 
         const block_environment = Environment.init(
             self.allocator, 
@@ -159,7 +166,7 @@ pub const Interpreter = struct {
 
     pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) RuntimeError!void { 
         const parent_environment = self.environment; 
-        self.environment = environment;
+        self.environment.* = environment;
         defer self.environment = parent_environment; 
         errdefer self.environment = parent_environment;
 
@@ -208,7 +215,6 @@ pub const Interpreter = struct {
     }
 
     // visitorExpr logic
-    // TODO: double-check implementation here 
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         const callee = try self.evaluate(expr.callee);
         var arguments = ArrayList(Object).init(self.allocator);
@@ -216,8 +222,8 @@ pub const Interpreter = struct {
             arguments.append(try self.evaluate(arg)) catch return err.outOfMemory();
         }
 
-        const function = switch (callee) {
-            .Function => |value| value.initCallable(),
+        var funcType = switch (callee) {
+            .Function => |funcType| funcType.*,
             else => {
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
@@ -228,16 +234,16 @@ pub const Interpreter = struct {
             },
         };
 
-        if (arguments.items.len != function.arity()) {
+        if (arguments.items.len != funcType.arity()) {
             const err_msg = std.fmt.allocPrint(
                 self.allocator, 
                 "expected {d} arguments, got {d}", 
-                .{arguments.items.len, function.arity()}
+                .{arguments.items.len, funcType.arity()}
             ) catch return err.outOfMemory();
             return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
              
         }
-        return try function.call(self, arguments, self.allocator);
+        return try funcType.call(self, arguments, self.allocator);
 
     }
 

@@ -95,7 +95,7 @@ pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem
                 allocator, 
                 "{s}{s}", 
                 .{spacing, "  "}
-            ) catch return RuntimeError.AllocError;
+            ) catch return err.outOfMemory();
             i += 1;
         }
 

@@ -1,12 +1,40 @@
 const std = @import("std");
+const ArrayList = std.ArrayList;
 
 const token_type = @import("token_type.zig");
 const TokenType = token_type.TokenType;
 
 const err = @import("../error.zig");
 const AllocationError = err.AllocationError;
+const FunctionError = err.FunctionError;
 const Function = @import("../function.zig").Function;
+const Interpreter = @import("../interpreter.zig").Interpreter;
+const c = @import("../callable.zig");
  
+pub const FunctionType = union(enum) {
+    Declared: *Function,
+    Native: c.Callable(),
+
+    
+    pub fn arity(self: *FunctionType) usize {
+        switch (self.*) {
+            inline else => |case| return case.arity(),
+        }
+    }
+
+    pub fn toString(self: *FunctionType, allocator: std.mem.Allocator) AllocationError![]const u8 {
+        switch (self.*) {
+            inline else => |case| return case.toString(allocator),
+        }
+    }
+
+    pub fn call(self: *FunctionType, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
+        switch (self.*) {
+            inline else => |case| return case.call(interpreter, arguments, allocator),
+        }
+    }
+};
+
 // Literal should be defined similar to Object in Java
 pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function};
 pub const Object = union(Tag){
@@ -15,7 +43,7 @@ pub const Object = union(Tag){
     Number: f64,
     Nil: ?void,
     Bool: bool,
-    @"Function": *Function,
+    @"Function": *FunctionType,
 
     pub fn checkTag(self: Object, tag: Tag) bool {
         return std.mem.eql(u8, @tagName(self), @tagName(tag));
@@ -77,8 +105,11 @@ pub const Object = union(Tag){
             .String => |val| {
                 return val;
             },
-            .Function => |function|{
-                return try function.initCallable().toString(allocator);
+            .Function => |functionType|{
+                switch (functionType.*) {
+                    .Native => return try functionType.Native.toString(allocator),
+                    .Declared => return try functionType.Declared.toString(allocator),
+                } 
             },
         }
     }

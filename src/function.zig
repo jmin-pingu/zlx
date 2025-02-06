@@ -12,39 +12,52 @@ const FunctionError = err.FunctionError;
 
 const ArrayList = std.ArrayList;
 
+// NOTE:
+// What if we do the following
+// Make env store callableType
+// and let callableType be
+//
+// pub const CallableType = union(enum) {
+//     Declared: stmt.Function,
+//     Native: *Callable(),
+// };
+//
+//
+// TODO: need the idea of a "trait bound" here
+
 pub const Function = struct {
     const Self = @This();
-    callableType: CallableType, 
+    declared: stmt.Function, 
 
-    pub fn init(declaration: stmt.Function) Function {
-        return Function{.callableType = CallableType { .Declared = declaration}};
+    pub fn init(declared: stmt.Function) Function {
+        return Function{.declared = declared};
     }
 
-    pub fn initCallable(self: *Self) Callable() {
-        return Callable().init(self);
-    }
+    // pub fn initCallable(self: *Self) Callable() {
+    //     return Callable().init(self);
+    // }
     
     pub fn call(self: *Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
         // TODO: Depending on CallableType engage in different behavior
         var environment = Environment.init(allocator, interpreter.globals);
         // TODO: double-check logic of unwrap (.?)
-        for (0..self.callableType.Declared.params.items.len) |i| {
+        for (0..self.declared.params.items.len) |i| {
             // std.debug.print("{s}:{any}\n", .{self.callableType.Declared.params.items[i].literal.Identifier, arguments.items[i]});
-            try environment.define(self.callableType.Declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
+            try environment.define(self.declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
         }
-        interpreter.executeBlock(self.callableType.Declared.body, environment) catch return FunctionError.FunctionBodyError;
+        interpreter.executeBlock(self.declared.body, environment) catch return FunctionError.FunctionBodyError;
         return Object{.Nil = null};
     }
 
     pub fn arity(self: *Self) usize {
-        return self.callableType.Declared.params.items.len;
+        return self.declared.params.items.len;
     }
 
     pub fn toString(self: *Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
         return std.fmt.allocPrint(
             allocator,
             "<fn {s}>",
-            .{self.callableType.Declared.name.lexeme}
+            .{self.declared.name.lexeme}
         ) catch return err.outOfMemory();
     }
 };

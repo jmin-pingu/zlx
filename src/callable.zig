@@ -7,12 +7,6 @@ const AllocationError = @import("error.zig").AllocationError;
 const FunctionError = @import("error.zig").FunctionError;
 const ArrayList = std.ArrayList;
 
-// TODO: need the idea of a "trait bound" here
-pub const CallableType = union(enum) {
-    Declared: stmt.Function,
-    Native,
-};
-
 pub fn Callable() type {
     return struct {
         const T = FunctionError!Object;
@@ -21,7 +15,6 @@ pub fn Callable() type {
         callFn: *const fn (*anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T,
         arityFn: *const fn (*anyopaque) usize,
         toStringFn: *const fn (*anyopaque, std.mem.Allocator) AllocationError![]const u8,
-        callableType: CallableType,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -52,7 +45,6 @@ pub fn Callable() type {
                 .callFn= gen.callImpl,
                 .toStringFn= gen.toStringImpl,
                 .arityFn= gen.arityImpl,
-                .callableType=@field(ptr, "callableType")
             };
         }
 
