@@ -41,6 +41,7 @@ pub const Object = union(Tag){
     Identifier: []const u8,
     String: []const u8,
     Number: f64,
+    // TODO: rethink whether ?void makes sense for Nil
     Nil: ?void,
     Bool: bool,
     @"Function": *FunctionType,

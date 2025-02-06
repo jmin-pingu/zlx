@@ -17,7 +17,6 @@ pub const FileError = error{
 pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError;
 
 pub const FunctionError = error {
-    // TODO: think how to rename these
     TooManyArguments,
     FunctionCallError,
     FunctionBodyError, 

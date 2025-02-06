@@ -18,6 +18,7 @@ pub const Stmt= union(enum) {
     @"while": While,
     @"break": Break,
     function: Function,
+    @"return": Return,
     // @"return": Return,
 
     pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
@@ -29,18 +30,17 @@ pub const Stmt= union(enum) {
 
 pub const Return = struct { 
     keyword: Token,
-    value: *Expr,
+    value: ?*Expr,
 
-    pub fn accept(self: Function, T: type, visitor: Visitor(T)) T {
-        return visitor.visitFunctionStmt(self);
+    pub fn accept(self: Return, T: type, visitor: Visitor(T)) T {
+        return visitor.visitReturnStmt(self);
     }
 
-    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) Stmt {
-        return Stmt{ 
-            .function= Function {
-                .name= name, 
-                .params = params, 
-                .body= body
+    pub fn new(keyword: Token, value: ?*Expr) Stmt {
+        return Stmt { 
+            .@"return"= Return {
+                .keyword= keyword, 
+                .value = value
             } 
         };
     }
@@ -197,6 +197,7 @@ pub fn Visitor(comptime T: type) type {
         visitWhileStmtFn: *const fn (*anyopaque, stmt: While) T,
         visitBreakStmtFn: *const fn (*anyopaque, stmt: Break) T,
         visitFunctionStmtFn: *const fn (*anyopaque, stmt: Function) T,
+        visitReturnStmtFn: *const fn (*anyopaque, stmt: Return) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -244,6 +245,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitFunctionStmt, .{self, stmt});
                 }
+
+                pub fn visitReturnStmtImpl(pointer: *anyopaque, stmt: Return) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitReturnStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -256,6 +262,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitWhileStmtFn = gen.visitWhileStmtImpl,
                 .visitBreakStmtFn = gen.visitBreakStmtImpl,
                 .visitFunctionStmtFn = gen.visitFunctionStmtImpl,
+                .visitReturnStmtFn = gen.visitReturnStmtImpl,
             };
         }
 
@@ -289,6 +296,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitFunctionStmt(self: Self, stmt: Function) T {
             return self.visitFunctionStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitReturnStmt(self: Self, stmt: Return) T {
+            return self.visitReturnStmtFn(self.ptr, stmt);
         }
     };
 }

@@ -38,14 +38,18 @@ pub const Function = struct {
     // }
     
     pub fn call(self: *Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
-        // TODO: Depending on CallableType engage in different behavior
         var environment = Environment.init(allocator, interpreter.globals);
-        // TODO: double-check logic of unwrap (.?)
         for (0..self.declared.params.items.len) |i| {
-            // std.debug.print("{s}:{any}\n", .{self.callableType.Declared.params.items[i].literal.Identifier, arguments.items[i]});
             try environment.define(self.declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
         }
-        interpreter.executeBlock(self.declared.body, environment) catch return FunctionError.FunctionBodyError;
+
+        const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch {
+            return FunctionError.FunctionBodyError;
+        };
+        if (stmtValue == .Return) {
+            std.debug.print("function returned {any}\n", .{stmtValue.Return});
+            return stmtValue.Return;
+        }
         return Object{.Nil = null};
     }
 

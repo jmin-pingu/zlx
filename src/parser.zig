@@ -69,6 +69,7 @@ pub const Parser = struct {
     //                   | forStmt
     //                   | ifStmt
     //                   | printStmt
+    //                   | returnStmt
     //                   | whileStmt
     //                   | block ;
     //
@@ -85,6 +86,7 @@ pub const Parser = struct {
     //                   | forStmt
     //                   | breakIfStmt
     //                   | printStmt
+    //                   | returnStmt
     //                   | whileStm 
     //                   | breakBlock ;
     //
@@ -148,6 +150,7 @@ pub const Parser = struct {
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.ifStatement();
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
+        if (self.match(1, [1]TokenType{TokenType.RETURN})) return self.returnStatement();
         if (self.match(1, [1]TokenType{TokenType.WHILE})) return self.whileStatement();
         if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.block());
         return self.expressionStatement();
@@ -197,6 +200,16 @@ pub const Parser = struct {
         return body;
     }
 
+    fn returnStatement(self: *Parser) ParseError!Stmt {
+        const keyword  = self.previous();
+        var value: ?*expr.Expr = null;
+        if (!self.check(TokenType.SEMICOLON)) {
+            value = try self.expression();
+        }
+        _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after 'return'");
+        return s.Return.new(keyword, value);
+    }
+
     fn whileStatement(self: *Parser) ParseError!Stmt {
         _ = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after 'while'");
         const condition = try self.expression();
@@ -223,6 +236,7 @@ pub const Parser = struct {
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.breakIfStatement(break_condition);
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();
+        if (self.match(1, [1]TokenType{TokenType.RETURN})) return self.returnStatement();
         if (self.match(1, [1]TokenType{TokenType.WHILE})) return self.whileStatement();
         if (self.match(1, [1]TokenType{TokenType.LEFT_BRACE})) return s.Block.new(try self.breakBlock(break_condition));
         return self.expressionStatement();
