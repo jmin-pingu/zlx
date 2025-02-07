@@ -75,7 +75,7 @@ pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem
         }
     }
 
-    // TODO: reimplement print()
+    // TODO: reimplement print(), current issue with infinite recursion
     pub fn print(self: Environment, allocator: std.mem.Allocator) AllocationError!void {
         std.debug.print("-----\nenvs:\n", .{});
 

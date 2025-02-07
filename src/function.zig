@@ -46,11 +46,11 @@ pub const Function = struct {
         const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch {
             return FunctionError.FunctionBodyError;
         };
-        if (stmtValue == .Return) {
-            std.debug.print("function returned {any}\n", .{stmtValue.Return});
-            return stmtValue.Return;
+        if (stmtValue != null) {
+            return stmtValue.?;
+        } else {
+            return FunctionError.FunctionCallError;
         }
-        return Object{.Nil = null};
     }
 
     pub fn arity(self: *Self) usize {

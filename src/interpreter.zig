@@ -27,15 +27,10 @@ const FunctionError = err.FunctionError;
 // TODO: rethink this struct and whether I want the `Visitor`s as fields
 // TODO: Interpreter defines RuntimeError land
 
-const StmtValue = union(enum) {
-    Return: Object,
-    Void: void,
-};
-
 pub const Interpreter = struct {
     const Self = @This();
     const T: type = RuntimeError!Object;
-    const stmt_T: type = RuntimeError!StmtValue;
+    const stmt_T: type = RuntimeError!?Object;
 
     allocator: std.mem.Allocator,
     environment: *Environment,
@@ -97,8 +92,8 @@ pub const Interpreter = struct {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
             _ = try self.execute(statement);
-            // DEBUG: environments
             // self.environment.print(self.allocator) catch return err.outOfMemory();
+            // DEBUG: environments
         }     
     }
 
@@ -134,29 +129,27 @@ pub const Interpreter = struct {
         // const callable_ref = self.allocator.create(Callable()) catch return RuntimeError.AllocError;
        
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitBreakStmt(self: *Self, stmt: s.Break) stmt_T {
         stmt.associated_condition.* = (try e.Literal.new(Object{.Bool = false}, self.allocator)).*;
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitWhileStmt(self: *Self, stmt: s.While) stmt_T {
         while ((try self.evaluate(stmt.condition)).isTruthy()) {
             const value = try self.execute(stmt.body.*);
-            if (value == .Return) return value;
+            if (value != null) return value;
         }
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) stmt_T {
-        var value: Object = Object{ .Nil= null};
+        var value: ?Object = null;  
         if (stmt.value != null) value = try self.evaluate(stmt.value.?);
-
-        // throw new Return(value);
-        // Need to unfurl the value
-        return StmtValue{.Return = value};
+        std.debug.print("visiting ReturnStmt {any}\n", .{value});
+        return value;
     }
 
     pub fn visitIfStmt(self: *Self, stmt: s.If) stmt_T {
@@ -165,19 +158,15 @@ pub const Interpreter = struct {
         } else if (stmt.else_branch) |else_branch| {
             return try self.execute(else_branch.*);
         }     
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
-        var enclosed_environment = self.allocator.create(Environment) catch return err.outOfMemory();
-        enclosed_environment = self.environment;
-
         const block_environment = Environment.init(
             self.allocator, 
-           enclosed_environment 
+           self.environment 
         );
         
-        // TODO: rethink messaging for block
         return try self.executeBlock(
             stmt.statements, 
             block_environment
@@ -185,10 +174,10 @@ pub const Interpreter = struct {
     }
 
     pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) stmt_T { 
-        const parent_environment = self.environment; 
+        const parent_environment = self.environment.*; 
         self.environment.* = environment;
-        defer self.environment = parent_environment; 
-        errdefer self.environment = parent_environment;
+        defer self.environment.* = parent_environment; 
+        errdefer self.environment.* = parent_environment;
 
         for (statements.items) |stmt| {
             // TODO: issue, if we execute a break, how do we jump out?
@@ -199,11 +188,11 @@ pub const Interpreter = struct {
                 },
                 else => {
                     const value = try self.execute(stmt);
-                    if (value == .Return) return value;
+                    if (value != null) return value;
                 }
             }
         }
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) stmt_T {
@@ -217,13 +206,13 @@ pub const Interpreter = struct {
                 }
             }
         }
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) stmt_T {
         const value = try self.evaluate(stmt.expression);
         std.debug.print("{s}\n", .{try value.toString(self.allocator)});
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     pub fn visitVarStmt(self: *Self, stmt: s.Var) stmt_T {
@@ -236,7 +225,7 @@ pub const Interpreter = struct {
             // Declaration
             try self.environment.define(stmt.name.lexeme, null, self.allocator);
         }
-        return StmtValue{.Void = {}};
+        return null;
     }
 
     // visitorExpr logic
@@ -268,8 +257,8 @@ pub const Interpreter = struct {
             return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
              
         }
+        // NOTE: this is where 
         return try funcType.call(self, arguments, self.allocator);
-
     }
 
     pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
