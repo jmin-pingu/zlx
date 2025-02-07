@@ -40,6 +40,7 @@ pub const Interpreter = struct {
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
     pub fn init(allocator: std.mem.Allocator) RuntimeError!Self {
         const env_ref = allocator.create(Environment) catch return err.outOfMemory();
+        // NOTE: parent environment
         env_ref.* = Environment.init(allocator, null);
         const temp = .{ 
             .environment= env_ref,
@@ -148,7 +149,7 @@ pub const Interpreter = struct {
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) stmt_T {
         var value: ?Object = null;  
         if (stmt.value != null) value = try self.evaluate(stmt.value.?);
-        std.debug.print("visiting ReturnStmt {any}\n", .{value});
+        // std.debug.print("visiting ReturnStmt {any}\n", .{value});
         return value;
     }
 
@@ -161,8 +162,10 @@ pub const Interpreter = struct {
         return null;
     }
 
+    // TODO: suspecting an issue here
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
-        const block_environment = Environment.init(
+         const block_environment = try self.allocator.create(Environment);
+         block_environment.* = Environment.init(
             self.allocator, 
            self.environment 
         );
@@ -173,11 +176,12 @@ pub const Interpreter = struct {
         );
     }
 
-    pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: Environment) stmt_T { 
-        const parent_environment = self.environment.*; 
-        self.environment.* = environment;
-        defer self.environment.* = parent_environment; 
-        errdefer self.environment.* = parent_environment;
+    pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: *Environment) stmt_T { 
+        // NOTE: need to recover the parent environment
+        const parent_environment = self.environment; 
+        self.environment = environment;
+        defer self.environment = parent_environment; 
+        errdefer self.environment = parent_environment;
 
         for (statements.items) |stmt| {
             // TODO: issue, if we execute a break, how do we jump out?

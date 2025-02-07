@@ -38,7 +38,8 @@ pub const Function = struct {
     // }
     
     pub fn call(self: *Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
-        var environment = Environment.init(allocator, interpreter.globals);
+        var environment = try allocator.create(Environment);
+        environment.* = Environment.init(allocator, interpreter.globals);
         for (0..self.declared.params.items.len) |i| {
             try environment.define(self.declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
         }

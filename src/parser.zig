@@ -170,7 +170,9 @@ pub const Parser = struct {
         var condition: ?*expr.Expr = null;
         if (!self.check(TokenType.SEMICOLON)) {
             condition = try self.expression();
-        } 
+        } else {
+            condition = try expr.Literal.new(Object{.Bool = true}, self.allocator);
+        }
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition");
 
         var increment: ?*expr.Expr = null;
@@ -179,7 +181,6 @@ pub const Parser = struct {
         }         
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after condition");
 
-        condition = try expr.Literal.new(Object{.Bool = true}, self.allocator);
         var body = try self.breakStatement(condition.?);
 
         if (increment != null) {
