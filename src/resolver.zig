@@ -18,11 +18,11 @@ const err = @import("error.zig");
 // const ResolutionError = err.ResolutionError;
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
-const ResolutionError = err.ResolutionError;
+const CompileError = err.CompileError;
 
 pub const Resolver = struct {
     const Self = @This();
-    const T: type = ResolutionError!void;
+    const T: type = CompileError!void;
 
     interpreter: *Interpreter,
     scopes: ArrayList(*StringHashMap(bool)),
@@ -64,8 +64,9 @@ pub const Resolver = struct {
         _ = self.scopes.pop();
     }
 
-    fn declare(self: *Self, name: Token) AllocationError!void {
+    fn declare(self: *Self, name: Token) CompileError!void {
         if (self.scopes.items.len == 0) return;
+        if (self.scopes.getLast().get(name.lexeme) != null) return err.errorMessage(CompileError, name.line, "Variable already declared in this scope", self.allocator);
         self.scopes.getLast().put(name.lexeme, false) catch return err.outOfMemory();
     }
 
