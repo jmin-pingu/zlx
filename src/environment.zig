@@ -30,6 +30,17 @@ pub const Environment = struct {
         self.values.deinit(); 
     }
 
+    pub fn getAt(self: *Environment, distance: usize, name: []const u8) ?Object{
+        return self.ancestor(distance).values.get(name);
+    }
+
+    fn ancestor(self: *Environment, distance: usize) *Environment{
+        var ancestor_env = self;
+        for (0..distance) |_| {
+             ancestor_env = ancestor_env.enclosing;
+        }
+    }
+    
     pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) AllocationError!void {
         const copied_name = allocator.alloc(u8, name.len) catch return err.outOfMemory();
         @memcpy(copied_name, name);
@@ -59,8 +70,22 @@ pub const Environment = struct {
             return err.errorMessage(EnvironmentError, null, error_msg, EnvironmentError.UndeclaredObject, allocator);
         }
     }
+
+    pub fn assignAt(self: *Environment, distance: usize, name: Token, value: Object, allocator: std.mem.Allocator) VariableError!void {
+        if (self.ancestor(distance).values.get(name.lexeme)) |_| {
+            self.ancestor(distance).values.put(name.lexeme, value) catch return err.outOfMemory();
+        } else {
+            const error_msg = std.fmt.allocPrint(
+                allocator, 
+                "cannot assign undeclared variable '{s}'. \nNOTE: Declare or initialize '{s}' with `var`", 
+                .{name.lexeme, name.lexeme}
+            ) catch return err.outOfMemory();
+            return err.errorMessage(VariableError, name.line, error_msg, VariableError.UndeclaredVariable, allocator);
+        }
+    }
+
     
-pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) VariableError!void {
+    pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) VariableError!void {
         if (self.values.get(name.lexeme)) |_| {
             self.values.put(name.lexeme, value) catch return err.outOfMemory();
         } else if (self.enclosing) |parent_environment| {

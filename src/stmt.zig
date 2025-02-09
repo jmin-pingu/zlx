@@ -19,9 +19,8 @@ pub const Stmt= union(enum) {
     @"break": Break,
     function: Function,
     @"return": Return,
-    // @"return": Return,
 
-    pub fn accept(self: *const Stmt, T: type, visitor: Visitor(T)) T {
+    pub fn accept(self: *Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
             inline else => |case| return case.accept(T, visitor),
         }
@@ -36,13 +35,15 @@ pub const Return = struct {
         return visitor.visitReturnStmt(self);
     }
 
-    pub fn new(keyword: Token, value: ?*Expr) Stmt {
-        return Stmt { 
+    pub fn new(keyword: Token, value: ?*Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt { 
             .@"return"= Return {
                 .keyword= keyword, 
                 .value = value
             } 
         };
+        return stmt_ref;
     }
 };
 
@@ -50,20 +51,22 @@ pub const Return = struct {
 pub const Function = struct { 
     name: Token,
     params: ArrayList(Token),
-    body: ArrayList(Stmt),
+    body: ArrayList(*Stmt),
 
     pub fn accept(self: Function, T: type, visitor: Visitor(T)) T {
         return visitor.visitFunctionStmt(self);
     }
 
-    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(Stmt)) AllocationError!Stmt {
-        return Stmt{ 
+    pub fn new(name: Token, params: ArrayList(Token), body: ArrayList(*Stmt), allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ 
             .function= Function {
                 .name= name, 
                 .params = params.clone() catch return err.outOfMemory(),
                 .body= body.clone() catch return err.outOfMemory() 
             } 
         };
+        return stmt_ref;
     }
 };
 
@@ -75,8 +78,10 @@ pub const Break = struct {
         return visitor.visitBreakStmt(self);
     }
 
-    pub fn new(associated_condition: *Expr) Stmt {
-        return Stmt{ .@"break"=Break{.associated_condition =associated_condition} };
+    pub fn new(associated_condition: *Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .@"break"=Break{.associated_condition =associated_condition} };
+        return stmt_ref;
     }
 };
 
@@ -89,10 +94,10 @@ pub const While = struct {
         return visitor.visitWhileStmt(self);
     }
 
-    pub fn new(condition: *Expr, body: Stmt, allocator: std.mem.Allocator) AllocationError!Stmt {
-        const new_body = allocator.create(Stmt) catch return err.outOfMemory();
-        new_body.* = body;
-        return Stmt{ .@"while"=While{.condition=condition, .body = new_body} };
+    pub fn new(condition: *Expr, body: *Stmt, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .@"while"=While{.condition=condition, .body = body} };
+        return stmt_ref;
     }
 };
 
@@ -105,42 +110,44 @@ pub const If = struct {
         return visitor.visitIfStmt(self);
     }
 
-    pub fn new(condition: *Expr, then_branch: Stmt, else_branch: ?Stmt, allocator: std.mem.Allocator) AllocationError!Stmt {
-        const then_b = allocator.create(Stmt) catch return err.outOfMemory();
+    pub fn new(condition: *Expr, then_branch: *Stmt, else_branch: ?*Stmt, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        // const then_b = allocator.create(Stmt) catch return err.outOfMemory();
 
-        then_b.* = then_branch;
         if (else_branch) |value| {
-            const else_b = allocator.create(Stmt) catch return err.outOfMemory();
-            else_b.* = value;
-            return Stmt{ 
+            stmt_ref.* = Stmt{ 
                 .@"if"= If{
                     .condition=condition,
-                    .then_branch=then_b,
-                    .else_branch=else_b,
+                    .then_branch=then_branch,
+                    .else_branch=value,
                 } 
             };
         } else {
-            return Stmt{ 
+            stmt_ref.* = Stmt{ 
                 .@"if"= If{
                     .condition=condition,
-                    .then_branch=then_b,
+                    .then_branch=then_branch,
                     .else_branch=null,
                 } 
             };
+
         }
+        return stmt_ref;
 
     }
 };
 
 pub const Block = struct { 
-    statements: ArrayList(Stmt),
+    statements: ArrayList(*Stmt),
 
     pub fn accept(self: Block, T: type, visitor: Visitor(T)) T {
         return visitor.visitBlockStmt(self);
     }
 
-    pub fn new(statements: ArrayList(Stmt)) Stmt {
-        return Stmt{ .block=Block{.statements=statements} };
+    pub fn new(statements: ArrayList(*Stmt), allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .block=Block{.statements=statements} };
+        return stmt_ref;
     }
 };
 
@@ -151,8 +158,10 @@ pub const Expression = struct {
         return visitor.visitExpressionStmt(self);
     }
 
-    pub fn new(expr: *e.Expr) Stmt {
-        return Stmt{ .expression=Expression{.expression=expr} };
+    pub fn new(expr: *e.Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .expression=Expression{.expression=expr} };
+        return stmt_ref;
     }
 };
 
@@ -163,8 +172,10 @@ pub const Print = struct {
         return visitor.visitPrintStmt(self);
     }
 
-    pub fn new(expr: *e.Expr) Stmt {
-        return Stmt{ .print=Print{.expression=expr} };
+    pub fn new(expr: *e.Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .print=Print{.expression=expr} };
+        return stmt_ref;
     }
 };
 
@@ -176,8 +187,10 @@ pub const Var = struct {
         return visitor.visitVarStmt(self);
     }
 
-    pub fn new(name: Token, initializer: ?*e.Expr) Stmt {
-        return Stmt{ .@"var"=Var{.name=name, .initializer=initializer} };
+    pub fn new(name: Token, initializer: ?*e.Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt{ .@"var"=Var{.name=name, .initializer=initializer} };
+        return stmt_ref;
     }
 };
 

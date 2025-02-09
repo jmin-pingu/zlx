@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ArrayList = std.ArrayList;
+const AutoHashMap = std.AutoHashMap;
 
 const Token = @import("token/token.zig").Token;
 const TokenType = @import("token/token_type.zig").TokenType;
@@ -22,6 +23,7 @@ const Environment = @import("environment.zig").Environment;
 
 const err = @import("error.zig");
 const RuntimeError = err.RuntimeError;
+const ResolutionError = err.ResolutionError;
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
 
@@ -37,6 +39,7 @@ pub const Interpreter = struct {
     environment: *Environment,
     globals: *Environment,
     returnValue: ?Object,
+    locals: AutoHashMap(*e.Expr, usize),
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
     pub fn init(allocator: std.mem.Allocator) RuntimeError!Self {
@@ -47,7 +50,8 @@ pub const Interpreter = struct {
             .environment= env_ref,
             .globals = env_ref,
             .allocator = allocator,
-            .returnValue = null
+            .returnValue = null,
+            .locals = AutoHashMap(*e.Expr, usize).init(allocator),
         };
 
         var clock = native.Clock{};
@@ -69,7 +73,7 @@ pub const Interpreter = struct {
         return temp;
     }
 
-    pub fn interpret(self: *Self, statements: *ArrayList(s.Stmt)) RuntimeError!void {
+    pub fn interpret(self: *Self, statements: *ArrayList(*s.Stmt)) RuntimeError!void {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
             _ = try self.execute(statement);
@@ -87,7 +91,11 @@ pub const Interpreter = struct {
         return expr.accept(T, visitor);
     }
 
-    fn execute(self: *Self, stmt: s.Stmt) stmt_T {
+    fn resolve(self: *Self, expr: *e.Expr, depth: usize) ResolutionError!void {
+        self.locals.put(expr, depth);
+    }
+
+    fn execute(self: *Self, stmt: *s.Stmt) stmt_T {
         const visitor = self.initStmtVisitor();
         return try stmt.accept(stmt_T, visitor);
     }
@@ -247,18 +255,35 @@ pub const Interpreter = struct {
 
     pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
         const value = try self.evaluate(expr.value);
-        self.environment.assign(expr.name, value, self.allocator) catch return err.outOfMemory();
+
+        const distance = self.locals.get(expr);
+        if (distance != null) {
+            try self.environment.assignAt(distance.?, expr.name, value, self.allocator);
+        } else {
+            try self.globals.assign(expr.name, value);
+        }
         return value;
+        // self.environment.assign(expr.name, value, self.allocator) catch return err.outOfMemory();
     }
 
     pub fn visitVarExpr(self: *Self, expr: e.Var) T {
-        const variable = self.environment.get(expr.name.lexeme, self.allocator) catch |get_err| {
-            if (get_err == AllocationError.OutOfMemory) {
-                return err.outOfMemory(); // map to Runtime error
-            }
-            return get_err;
-        };
-        return variable;
+        return self.lookUpVar(expr.name, expr);
+        // const variable = self.environment.get(expr.name.lexeme, self.allocator) catch |get_err| {
+        //     if (get_err == AllocationError.OutOfMemory) {
+        //         return err.outOfMemory(); // map to Runtime error
+        //     }
+        //     return get_err;
+        // };
+        // return variable;
+    }
+
+    fn lookUpVar(self: *Self, name: Token, expr: e.Var) T {
+        const distance = self.locals.get(expr);
+        if (distance != null) {
+            return self.environment.getAt(distance.?, name.lexeme);
+        } else {
+            return self.globals.get(name);
+        }
     }
 
     pub fn visitLogicalExpr(self: *Self, expr: e.Logical) T {

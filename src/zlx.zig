@@ -3,6 +3,7 @@ const ArrayList = std.ArrayList;
 
 const Scanner = @import("scanner.zig").Scanner;
 const Parser = @import("parser.zig").Parser;
+const Resolver = @import("resolver.zig").Resolver;
 const AstPrinter = @import("printer.zig").AstPrinter;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
@@ -70,7 +71,12 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     const tokens = try scanner.scanTokens();
 
     var parser = Parser.init(tokens, allocator);
-    var statements  = try parser.parse(); 
+    var statements = try parser.parse(); 
+    var resolver = Resolver.init(interpreter, allocator);
+
+    for (statements.items) |statement| {
+        try resolver.resolveStatement(statement);
+    }
     _ = try interpreter.interpret(&statements);
 }
 
