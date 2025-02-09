@@ -123,9 +123,7 @@ pub const Interpreter = struct {
     // visitorStmt logic
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
         const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
-        const fn_ref = self.allocator.create(Function) catch return err.outOfMemory();
-        fn_ref.* = try Function.init(stmt, self.environment);
-        fntype_ref.*.Declared = fn_ref;
+        fntype_ref.*.Declared = try Function.init(stmt, self.environment);
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
         return null;
     }

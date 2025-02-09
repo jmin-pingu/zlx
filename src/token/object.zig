@@ -12,24 +12,23 @@ const Interpreter = @import("../interpreter.zig").Interpreter;
 const c = @import("../callable.zig");
  
 pub const FunctionType = union(enum) {
-    Declared: *Function,
+    Declared: Function,
     Native: c.Callable(),
 
-    
-    pub fn arity(self: *FunctionType) usize {
-        switch (self.*) {
+    pub fn arity(self: FunctionType) usize {
+        switch (self) {
             inline else => |case| return case.arity(),
         }
     }
 
-    pub fn toString(self: *FunctionType, allocator: std.mem.Allocator) AllocationError![]const u8 {
-        switch (self.*) {
+    pub fn toString(self: FunctionType, allocator: std.mem.Allocator) AllocationError![]const u8 {
+        switch (self) {
             inline else => |case| return case.toString(allocator),
         }
     }
 
-    pub fn call(self: *FunctionType, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
-        switch (self.*) {
+    pub fn call(self: FunctionType, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
+        switch (self) {
             inline else => |case| return case.call(interpreter, arguments, allocator),
         }
     }

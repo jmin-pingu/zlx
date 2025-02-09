@@ -12,19 +12,6 @@ const FunctionError = err.FunctionError;
 
 const ArrayList = std.ArrayList;
 
-// NOTE:
-// What if we do the following
-// Make env store callableType
-// and let callableType be
-//
-// pub const CallableType = union(enum) {
-//     Declared: stmt.Function,
-//     Native: *Callable(),
-// };
-//
-//
-// TODO: need the idea of a "trait bound" here
-
 pub const Function = struct {
     const Self = @This();
     declared: stmt.Function, 
@@ -36,12 +23,8 @@ pub const Function = struct {
             .closure = closure
         };
     }
-
-    // pub fn initCallable(self: *Self) Callable() {
-    //     return Callable().init(self);
-    // }
     
-    pub fn call(self: *Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
+    pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
         var environment = try allocator.create(Environment);
         environment.* = Environment.init(allocator, self.closure);
 
@@ -55,17 +38,15 @@ pub const Function = struct {
 
         if (stmtValue != null) {
             return stmtValue.?;
-        } else {
-            // Nothing returns is default
-            return Object{.Nil=null};
-        }
+        }                         
+        return Object{.Nil=null};
     }
 
-    pub fn arity(self: *Self) usize {
+    pub fn arity(self: Self) usize {
         return self.declared.params.items.len;
     }
 
-    pub fn toString(self: *Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
+    pub fn toString(self: Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
         return std.fmt.allocPrint(
             allocator,
             "<fn {s}>",
