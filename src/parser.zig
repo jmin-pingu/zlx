@@ -318,14 +318,12 @@ pub const Parser = struct {
     //                   | call;
     // call           -> primary ( "(" arguments? ")" )* ;
     // arguments      -> expression ( "," expression )* ;
-    // NOTE: Does it make to mix statements and expressions?
-    // anonymousExpr       -> "fun" anon ;
-    // anonymous           -> "(" parameters? ")" block ;
-    //
-    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
-    //
-    // primary        -> NUMBER | STRING | "true" | "false" | "nil"
+    // primary        -> anonymous | NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
+    //
+    // anonymousExpr  -> "fun" anon ;
+    // anonymous      -> "(" parameters? ")" block ;
+    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
 
 
 
@@ -445,22 +443,13 @@ pub const Parser = struct {
                 return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 arguments", FunctionError.TooManyArguments, self.allocator);
             }
 
-            arguments.append(try self.anonymous()) catch return err.outOfMemory();
+            arguments.append(try self.expression()) catch return err.outOfMemory();
             while (self.match(1, [1]TokenType{TokenType.COMMA})) {
-                arguments.append(try self.anonymous()) catch return err.outOfMemory();
+                arguments.append(try self.expression()) catch return err.outOfMemory();
             }
         }
         const right_paren = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments");
         return try expr.Call.new(callee, right_paren, arguments, self.allocator);
-    }
-
-    fn anonymous(self: *Parser) ParseError!*expr.Expr{
-        if (self.match(1, [1]TokenType{TokenType.FUN})) {
-            const keyword = self.previous();
-            const func: s.Function = (try self.anonymousFunction()).function;
-            return expr.Anonymous.new(keyword, func, self.allocator);
-        }
-        return try self.expression();
     }
 
     fn anonymousFunction(self: *Parser) ParseError!s.Stmt {
@@ -478,6 +467,10 @@ pub const Parser = struct {
         return s.Function.new(Token.new(TokenType.NIL, "", null, paren.line), parameters, body);
     }
 
+    fn anonymous(self: *Parser, keyword: Token) ParseError!*expr.Expr{
+        const func: s.Function = (try self.anonymousFunction()).function;
+        return try expr.Anonymous.new(keyword, func, self.allocator);
+    }
 
     fn primary(self: *Parser) ParseError!*expr.Expr {
         if (self.match(1, [1]TokenType{TokenType.FALSE})) return try expr.Literal.new(Object{.Bool=false}, self.allocator);
@@ -487,7 +480,7 @@ pub const Parser = struct {
         if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return try expr.Literal.new(self.previous().literal, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
         // TODO: does it make sense to make anonymous a primary
-        if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.anonymous(self.previous());
 
         if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
             const e = try self.expression();
