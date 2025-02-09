@@ -4,10 +4,7 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 
 const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
 const Object= @import("token/object.zig").Object;
-const Tag = @import("token/object.zig").Tag;
-const FunctionType = @import("token/object.zig").FunctionType;
 
 const e= @import("expr.zig");
 const ExprVisitor = @import("expr.zig").Visitor;
@@ -15,11 +12,6 @@ const ExprVisitor = @import("expr.zig").Visitor;
 const s = @import("stmt.zig");
 const StmtVisitor = @import("stmt.zig").Visitor;
 
-const native = @import("native.zig");
-const Function = @import("function.zig").Function;
-const Callable = @import("callable.zig").Callable;
-
-const Environment = @import("environment.zig").Environment;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
 const err = @import("error.zig");

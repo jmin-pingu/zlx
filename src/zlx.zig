@@ -74,6 +74,9 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     var statements = try parser.parse(); 
     var resolver = Resolver.init(interpreter, allocator);
 
+    // Functionality of resoler contingent on heap allocations in the parser for all "structures"
+    // like Stmt and Expr since we need their addresses to remain consistent between
+    // static analysis and actual interpretation
     for (statements.items) |statement| {
         try resolver.resolveStatement(statement);
     }

@@ -87,15 +87,17 @@ pub const Interpreter = struct {
         _ = self;
     }
 
+    // KEY: this is a key step where we populate solutions in an AST prior to interpreting
+    pub fn resolve(self: *Self, addr: usize, depth: usize) ResolutionError!void {
+        try self.locals.put(addr, depth);
+    }
+
     // private methods
     fn evaluate(self: *Self, expr: *e.Expr) T {
         const visitor = self.initExprVisitor();
         return expr.accept(T, visitor);
     }
 
-    pub fn resolve(self: *Self, addr: usize, depth: usize) ResolutionError!void {
-        try self.locals.put(addr, depth);
-    }
 
     fn execute(self: *Self, stmt: *s.Stmt) stmt_T {
         const visitor = self.initStmtVisitor();
