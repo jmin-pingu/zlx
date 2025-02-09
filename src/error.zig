@@ -14,7 +14,9 @@ pub const FileError = error{
     ReadError,
 };
 
-pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError;
+pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError || VariableError;
+
+pub const ResolutionError = error{ VariableShadow } || AllocationError;
 
 pub const FunctionError = error {
     TooManyArguments,

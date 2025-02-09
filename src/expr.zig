@@ -21,7 +21,7 @@ pub const Expr= union(enum) {
 
     pub fn accept(self: *Expr, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
-            inline else => |case| return case.accept(T, visitor),
+            inline else => |case| return case.accept(T, visitor, @intFromPtr(self)),
         }
     }
 };
@@ -41,7 +41,8 @@ pub const Anonymous = struct {
         return expr;
     }
 
-    pub fn accept(self: Anonymous, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Anonymous, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitAnonymousExpr(self);
     }
 };
@@ -61,7 +62,8 @@ pub const Call = struct {
         return expr;
     }
 
-    pub fn accept(self: Call, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Call, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitCallExpr(self);
     }
 };
@@ -86,7 +88,8 @@ pub const Logical = struct {
         return expr;
     }
 
-    pub fn accept(self: Logical, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Logical, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitLogicalExpr(self);
     }
 };
@@ -110,7 +113,8 @@ pub const Binary = struct {
         return expr;
     }
 
-    pub fn accept(self: Binary, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Binary, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitBinaryExpr(self);
     }
 };
@@ -130,7 +134,8 @@ pub const Grouping = struct {
         return expr;
     }
 
-    pub fn accept(self: Grouping, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Grouping, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitGroupingExpr(self);
     }
 };
@@ -148,7 +153,8 @@ pub const Literal = struct {
         return expr;
     }
 
-    pub fn accept(self: Literal, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Literal, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitLiteralExpr(self);
     }
 };
@@ -166,7 +172,8 @@ pub const Unary = struct {
         return expr;
     }
 
-    pub fn accept(self: Unary, T: type, visitor: Visitor(T)) T { 
+    pub fn accept(self: Unary, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
         return visitor.visitUnaryExpr(self);
     }
 };
@@ -175,6 +182,7 @@ pub const Var = struct {
     name: Token,
     pub fn new(name: Token, allocator: std.mem.Allocator) AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
+        // std.debug.print("createVarExpr: name {s}, addr {d}\n", .{name.lexeme, @intFromPtr(expr)});
         expr.* = Expr{ 
             .@"var"=Var{ 
                 .name=name,
@@ -183,8 +191,8 @@ pub const Var = struct {
         return expr;
     }
 
-    pub fn accept(self: Var, T: type, visitor: Visitor(T)) T { 
-        return visitor.visitVarExpr(self);
+    pub fn accept(self: Var, T: type, visitor: Visitor(T), addr: usize) T { 
+        return visitor.visitVarExpr(self, addr);
     }
 };
 
@@ -199,11 +207,13 @@ pub const Assign = struct {
                 .value=value,
             }
         };
+
+        // std.debug.print("createAssignExpr: name {s}, addr {d}\n", .{name.lexeme, @intFromPtr(expr)});
         return expr;
     }
 
-    pub fn accept(self: Assign, T: type, visitor: Visitor(T)) T { 
-        return visitor.visitAssignExpr(self);
+    pub fn accept(self: Assign, T: type, visitor: Visitor(T), addr: usize) T { 
+        return visitor.visitAssignExpr(self, addr);
     }
 };
 
@@ -218,8 +228,8 @@ pub fn Visitor(comptime T: type) type {
         visitGroupingExprFn: *const fn (*anyopaque, expr: Grouping) T,
         visitLiteralExprFn: *const fn (*anyopaque, expr: Literal) T,
         visitUnaryExprFn: *const fn (*anyopaque, expr: Unary) T,
-        visitVarExprFn: *const fn (*anyopaque, expr: Var) T,
-        visitAssignExprFn: *const fn (*anyopaque, expr: Assign) T,
+        visitVarExprFn: *const fn (*anyopaque, expr: Var, addr: usize) T,
+        visitAssignExprFn: *const fn (*anyopaque, expr: Assign, addr: usize) T,
         visitLogicalExprFn: *const fn (*anyopaque, expr: Logical) T,
         visitCallExprFn: *const fn (*anyopaque, expr: Call) T,
         visitAnonymousExprFn: *const fn (*anyopaque, expr: Anonymous) T,
@@ -253,14 +263,14 @@ pub fn Visitor(comptime T: type) type {
                     return @call(.auto, ptr_info.Pointer.child.visitUnaryExpr, .{self, expr});
                 }
 
-                pub fn visitVarExprImpl(pointer: *anyopaque, expr: Var) T {
+                pub fn visitVarExprImpl(pointer: *anyopaque, expr: Var, addr: usize) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitVarExpr, .{self, expr});
+                    return @call(.auto, ptr_info.Pointer.child.visitVarExpr, .{self, expr, addr});
                 }
 
-                pub fn visitAssignExprImpl(pointer: *anyopaque, expr: Assign) T {
+                pub fn visitAssignExprImpl(pointer: *anyopaque, expr: Assign, addr: usize) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitAssignExpr, .{self, expr});
+                    return @call(.auto, ptr_info.Pointer.child.visitAssignExpr, .{self, expr, addr});
                 }
 
                 pub fn visitLogicalExprImpl(pointer: *anyopaque, expr: Logical) T {
@@ -309,12 +319,12 @@ pub fn Visitor(comptime T: type) type {
             return self.visitUnaryExprFn(self.ptr, expr);
         }
 
-        pub inline fn visitVarExpr(self: Self, expr: Var) T {
-            return self.visitVarExprFn(self.ptr, expr);
+        pub inline fn visitVarExpr(self: Self, expr: Var, addr: usize) T {
+            return self.visitVarExprFn(self.ptr, expr, addr);
         }
 
-        pub inline fn visitAssignExpr(self: Self, expr: Assign) T {
-            return self.visitAssignExprFn(self.ptr, expr);
+        pub inline fn visitAssignExpr(self: Self, expr: Assign, addr: usize) T {
+            return self.visitAssignExprFn(self.ptr, expr, addr);
         }
 
         pub inline fn visitLogicalExpr(self: Self, expr: Logical) T {

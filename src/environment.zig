@@ -30,15 +30,20 @@ pub const Environment = struct {
         self.values.deinit(); 
     }
 
-    pub fn getAt(self: *Environment, distance: usize, name: []const u8) ?Object{
-        return self.ancestor(distance).values.get(name);
+    pub fn getAt(self: *Environment, distance: usize, name: []const u8, allocator: std.mem.Allocator) EnvironmentError!Object{
+        return try self.ancestor(distance).get(name, allocator);
     }
 
     fn ancestor(self: *Environment, distance: usize) *Environment{
         var ancestor_env = self;
         for (0..distance) |_| {
-             ancestor_env = ancestor_env.enclosing;
+            if (ancestor_env.enclosing != null) {
+                ancestor_env = ancestor_env.enclosing.?;
+            } else {
+                unreachable;
+            }
         }
+        return ancestor_env;
     }
     
     pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) AllocationError!void {

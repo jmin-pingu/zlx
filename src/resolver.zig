@@ -26,23 +26,20 @@ const err = @import("error.zig");
 // const ResolutionError = err.ResolutionError;
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
-
-const ResolutionError = error {
-    VariableShadow
-} || AllocationError;
+const ResolutionError = err.ResolutionError;
 
 pub const Resolver = struct {
     const Self = @This();
     const T: type = ResolutionError!void;
 
     interpreter: *Interpreter,
-    scopes: ArrayList(StringHashMap(bool)),
+    scopes: ArrayList(*StringHashMap(bool)),
     allocator: std.mem.Allocator,
 
     pub fn init(interpreter: *Interpreter, allocator: std.mem.Allocator) Resolver {
         return Resolver{ 
             .interpreter = interpreter,
-            .scopes = ArrayList(StringHashMap(bool)).init(allocator),
+            .scopes = ArrayList(*StringHashMap(bool)).init(allocator),
             .allocator = allocator,
         };
     }
@@ -66,7 +63,9 @@ pub const Resolver = struct {
     }
 
     fn beginScope(self: *Self) AllocationError!void {
-        try self.scopes.append(StringHashMap(bool).init(self.allocator));
+        const map = self.allocator.create(StringHashMap(bool)) catch return err.outOfMemory();
+        map.* = StringHashMap(bool).init(self.allocator);
+        try self.scopes.append(map);
     }
 
     fn endScope(self: *Self) void {
@@ -117,13 +116,13 @@ pub const Resolver = struct {
     }
 
     pub fn visitExpressionStmt(self: *Self, stmt: s.Expression) T {
-        try self.resolveStatement(s.Stmt{.expression = stmt});
+        try self.resolveExpr(stmt.expression);
     }
 
     pub fn visitIfStmt(self: *Self, stmt: s.If) T {
         try self.resolveExpr(stmt.condition);
         try self.resolveStatement(stmt.then_branch);
-        if (stmt.else_branch != null) try self.resolveStatement(stmt.else_branch);
+        if (stmt.else_branch != null) try self.resolveStatement(stmt.else_branch.?);
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) T {
@@ -132,7 +131,7 @@ pub const Resolver = struct {
 
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) T {
         if (stmt.value != null) {
-            try self.resolveExpr(stmt.value);
+            try self.resolveExpr(stmt.value.?);
         }
     }
 
@@ -147,30 +146,30 @@ pub const Resolver = struct {
     }
 
     // Implement Expressions
-    pub fn visitVarExpr(self: *Self, expr: e.Var) T {
+    pub fn visitVarExpr(self: *Self, expr: e.Var, addr: usize) T {
         const scopes_size = self.scopes.items.len;
-        // TODO: are we guaranteed for the variable to EXIST within the hashmap?
-        if (scopes_size > 0 and self.scopes.getLast().get(expr.name.lexeme).? == false) {
-            return err.errorMessage(ResolutionError, expr.name.line, "Can't read local variable in its own initializer.", ResolutionError.VariableShadow, self.allocator);
+        if (scopes_size > 0) {
+            const varResolved = self.scopes.getLast().get(expr.name.lexeme);
+            if (varResolved != null and varResolved.? == false) return err.errorMessage(ResolutionError, expr.name.line, "Can't read local variable in its own initializer.", ResolutionError.VariableShadow, self.allocator);
         }
-        self.resolveLocal(expr, expr.name);
+        try self.resolveLocal(addr, expr.name);
     }
 
     // Look in current scope and above
-    fn resolveLocal(self: *Self, expr: e.Expr, name: Token) T {
+    fn resolveLocal(self: *Self, addr: usize, name: Token) T {
         var i = self.scopes.items.len;
         while (i > 0) {
             i -= 1; 
             const scope = self.scopes.items[i];
             if (scope.get(name.lexeme) != null) {
-                self.interpreter.resolve(expr, self.scopes.item.len - 1 - i);
+                try self.interpreter.resolve(addr, self.scopes.items.len - 1 - i);
             }
         }
     }
 
-    pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
+    pub fn visitAssignExpr(self: *Self, expr: e.Assign, addr: usize) T {
         try self.resolveExpr(expr.value);
-        try self.resolveLocal(expr, expr.name);
+        try self.resolveLocal(addr, expr.name);
     }
 
     pub fn visitBinaryExpr(self: *Self, expr: e.Binary) T {
@@ -198,17 +197,17 @@ pub const Resolver = struct {
     }
 
     pub fn visitUnaryExpr(self: *Self, expr: e.Unary) T {
-        self.resolveExpr(expr.right);
+        try self.resolveExpr(expr.right);
     }
 
     pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
         // TODO: double check logic
         try self.beginScope();
-        for (expr.params.items) |param| {
+        for (expr.function.params.items) |param| {
             try self.declare(param);
             try self.define(param);
         }
-        for (expr.body.items) |stmt| try self.resolveStatement(stmt);
+        for (expr.function.body.items) |stmt| try self.resolveStatement(stmt);
         self.endScope();
     }
 };

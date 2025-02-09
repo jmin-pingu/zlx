@@ -39,7 +39,9 @@ pub const Interpreter = struct {
     environment: *Environment,
     globals: *Environment,
     returnValue: ?Object,
-    locals: AutoHashMap(*e.Expr, usize),
+    // TODO: need to figure out representation for AutoHashMap
+    // why not use the address of the underlying data
+    locals: AutoHashMap(usize, usize),
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
     pub fn init(allocator: std.mem.Allocator) RuntimeError!Self {
@@ -51,7 +53,7 @@ pub const Interpreter = struct {
             .globals = env_ref,
             .allocator = allocator,
             .returnValue = null,
-            .locals = AutoHashMap(*e.Expr, usize).init(allocator),
+            .locals = AutoHashMap(usize, usize).init(allocator),
         };
 
         var clock = native.Clock{};
@@ -91,8 +93,8 @@ pub const Interpreter = struct {
         return expr.accept(T, visitor);
     }
 
-    fn resolve(self: *Self, expr: *e.Expr, depth: usize) ResolutionError!void {
-        self.locals.put(expr, depth);
+    pub fn resolve(self: *Self, addr: usize, depth: usize) ResolutionError!void {
+        try self.locals.put(addr, depth);
     }
 
     fn execute(self: *Self, stmt: *s.Stmt) stmt_T {
@@ -123,7 +125,7 @@ pub const Interpreter = struct {
 
     pub fn visitWhileStmt(self: *Self, stmt: s.While) stmt_T {
         while ((try self.evaluate(stmt.condition)).isTruthy()) {
-            const value = try self.execute(stmt.body.*);
+            const value = try self.execute(stmt.body);
             if (value != null) return value;
         }
         return null;
@@ -132,15 +134,14 @@ pub const Interpreter = struct {
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) stmt_T {
         var value: ?Object = null;  
         if (stmt.value != null) value = try self.evaluate(stmt.value.?);
-        // std.debug.print("visiting ReturnStmt {any}\n", .{value});
         return value;
     }
 
     pub fn visitIfStmt(self: *Self, stmt: s.If) stmt_T {
         if ((try self.evaluate(stmt.condition)).isTruthy()) {
-            return try self.execute(stmt.then_branch.*);
+            return try self.execute(stmt.then_branch);
         } else if (stmt.else_branch) |else_branch| {
-            return try self.execute(else_branch.*);
+            return try self.execute(else_branch);
         }     
         return null;
     }
@@ -158,7 +159,7 @@ pub const Interpreter = struct {
         );
     }
 
-    pub fn executeBlock(self: *Self, statements: ArrayList(s.Stmt), environment: *Environment) stmt_T { 
+    pub fn executeBlock(self: *Self, statements: ArrayList(*s.Stmt), environment: *Environment) stmt_T { 
         // NOTE: need to recover the parent environment
         const parent_environment = self.environment; 
         self.environment = environment;
@@ -167,7 +168,7 @@ pub const Interpreter = struct {
 
         for (statements.items) |stmt| {
             // TODO: issue, if we execute a break, how do we jump out?
-            switch (stmt) {
+            switch (stmt.*) {
                 .@"break" => {
                     _ = try self.execute(stmt);
                     break;
@@ -253,36 +254,28 @@ pub const Interpreter = struct {
         return Object{.Function=fntype_ref};
     }
 
-    pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
+    pub fn visitAssignExpr(self: *Self, expr: e.Assign, addr: usize) T {
         const value = try self.evaluate(expr.value);
-
-        const distance = self.locals.get(expr);
+        const distance = self.locals.get(addr);
         if (distance != null) {
             try self.environment.assignAt(distance.?, expr.name, value, self.allocator);
         } else {
-            try self.globals.assign(expr.name, value);
+            try self.globals.assign(expr.name, value, self.allocator);
         }
         return value;
         // self.environment.assign(expr.name, value, self.allocator) catch return err.outOfMemory();
     }
 
-    pub fn visitVarExpr(self: *Self, expr: e.Var) T {
-        return self.lookUpVar(expr.name, expr);
-        // const variable = self.environment.get(expr.name.lexeme, self.allocator) catch |get_err| {
-        //     if (get_err == AllocationError.OutOfMemory) {
-        //         return err.outOfMemory(); // map to Runtime error
-        //     }
-        //     return get_err;
-        // };
-        // return variable;
+    pub fn visitVarExpr(self: *Self, expr: e.Var, addr: usize) T {
+        return self.lookUpVar(expr.name, addr);
     }
 
-    fn lookUpVar(self: *Self, name: Token, expr: e.Var) T {
-        const distance = self.locals.get(expr);
+    fn lookUpVar(self: *Self, name: Token, addr: usize) T {
+        const distance = self.locals.get(addr);
         if (distance != null) {
-            return self.environment.getAt(distance.?, name.lexeme);
+            return self.environment.getAt(distance.?, name.lexeme, self.allocator);
         } else {
-            return self.globals.get(name);
+            return self.globals.get(name.lexeme, self.allocator);
         }
     }
 
