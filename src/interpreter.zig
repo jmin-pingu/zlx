@@ -23,7 +23,7 @@ const Environment = @import("environment.zig").Environment;
 
 const err = @import("error.zig");
 const RuntimeError = err.RuntimeError;
-const ResolutionError = err.ResolutionError;
+const CompileError = err.CompileError;
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
 
@@ -39,8 +39,8 @@ pub const Interpreter = struct {
     environment: *Environment,
     globals: *Environment,
     returnValue: ?Object,
-    // TODO: need to figure out representation for AutoHashMap
-    // why not use the address of the underlying data
+    // TODO: figre out a way to store in an array instead of a hashmap
+    // resolver should return the appropriate index based on `addr`
     locals: AutoHashMap(usize, usize),
 
     // TODO: note the interpreter owns all subsequent types and thus the responsibility of deallocating heap memory should be with respect to the interpreter
@@ -88,7 +88,7 @@ pub const Interpreter = struct {
     }
 
     // KEY: this is a key step where we populate solutions in an AST prior to interpreting
-    pub fn resolve(self: *Self, addr: usize, depth: usize) ResolutionError!void {
+    pub fn resolve(self: *Self, addr: usize, depth: usize) CompileError!void {
         try self.locals.put(addr, depth);
     }
 

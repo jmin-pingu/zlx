@@ -80,7 +80,8 @@ pub const Parser = struct {
     //                   expression? ")" break_statement ;
     //
     // whileStmt      -> "while" "(" expression ")" break_statement ;
-    //
+    // 
+    // TODO: rethink structure of `break` in the grammar
     // breakStatement -> break 
     //                   | exprStmt
     //                   | forStmt

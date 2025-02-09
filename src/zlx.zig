@@ -78,7 +78,7 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     // like Stmt and Expr since we need their addresses to remain consistent between
     // static analysis and actual interpretation
     for (statements.items) |statement| {
-        try resolver.resolveStatement(statement);
+        resolver.resolveStatement(statement) catch unreachable;
     }
     _ = try interpreter.interpret(&statements);
 }

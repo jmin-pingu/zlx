@@ -20,6 +20,16 @@ const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
 const CompileError = err.CompileError;
 
+const FunctionScopeType = union(enum) {
+    None,
+    Function,
+};
+
+const LoopScopeType = union(enum) {
+    None,
+    Loop,
+};
+
 pub const Resolver = struct {
     const Self = @This();
     const T: type = CompileError!void;
@@ -27,6 +37,8 @@ pub const Resolver = struct {
     interpreter: *Interpreter,
     scopes: ArrayList(*StringHashMap(bool)),
     allocator: std.mem.Allocator,
+    currentFunction: FunctionScopeType = FunctionScopeType.None,
+    currentLoop: LoopScopeType = LoopScopeType.None,
 
     pub fn init(interpreter: *Interpreter, allocator: std.mem.Allocator) Resolver {
         return Resolver{ 
@@ -66,7 +78,7 @@ pub const Resolver = struct {
 
     fn declare(self: *Self, name: Token) CompileError!void {
         if (self.scopes.items.len == 0) return;
-        if (self.scopes.getLast().get(name.lexeme) != null) return err.errorMessage(CompileError, name.line, "Variable already declared in this scope", self.allocator);
+        if (self.scopes.getLast().get(name.lexeme) != null) return err.errorMessage(CompileError, name.line, "Variable already declared in this scope", CompileError.RepeatVariableDeclaration, self.allocator);
         self.scopes.getLast().put(name.lexeme, false) catch return err.outOfMemory();
     }
 
@@ -95,10 +107,13 @@ pub const Resolver = struct {
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) T {
         try self.declare(stmt.name);
         try self.define(stmt.name);
-        try self.resolveFunction(stmt);
+        try self.resolveFunction(stmt, FunctionScopeType.Function);
     }
 
-    fn resolveFunction(self: *Self, function: s.Function) T {
+    fn resolveFunction(self: *Self, function: s.Function, stype: FunctionScopeType) T {
+        const enclosing_function = self.currentFunction;
+        defer self.currentFunction = enclosing_function;
+        self.currentFunction = stype;
         try self.beginScope();
         for (function.params.items) |param| {
             try self.declare(param);
@@ -113,6 +128,10 @@ pub const Resolver = struct {
     }
 
     pub fn visitIfStmt(self: *Self, stmt: s.If) T {
+        const enclosing_loop = self.currentLoop;
+        defer self.currentLoop = enclosing_loop;
+        self.currentLoop = LoopScopeType.Loop;
+
         try self.resolveExpr(stmt.condition);
         try self.resolveStatement(stmt.then_branch);
         if (stmt.else_branch != null) try self.resolveStatement(stmt.else_branch.?);
@@ -123,27 +142,31 @@ pub const Resolver = struct {
     }
 
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) T {
+        if (self.currentFunction == FunctionScopeType.None) return err.errorMessage(CompileError, stmt.keyword.line, "Return not nested in function", CompileError.IncorrectReturnScope, self.allocator);
         if (stmt.value != null) {
             try self.resolveExpr(stmt.value.?);
         }
     }
 
     pub fn visitBreakStmt(self: *Self, stmt: s.Break) T {
-        _ = self;
-        _ = stmt;
+        if (self.currentLoop == LoopScopeType.None) return err.errorMessage(CompileError, stmt.keyword.line, "Break not nested in loop", CompileError.IncorrectBreakScope, self.allocator);
     }
 
     pub fn visitWhileStmt(self: *Self, stmt: s.While) T {
+        const enclosing_loop = self.currentLoop;
+        defer self.currentLoop = enclosing_loop;
+        self.currentLoop = LoopScopeType.Loop;
         try self.resolveExpr(stmt.condition);
         try self.resolveStatement(stmt.body);
     }
 
     // Implement Expressions
     pub fn visitVarExpr(self: *Self, expr: e.Var, addr: usize) T {
+        // TODO: variable USAGE
         const scopes_size = self.scopes.items.len;
         if (scopes_size > 0) {
             const varResolved = self.scopes.getLast().get(expr.name.lexeme);
-            if (varResolved != null and varResolved.? == false) return err.errorMessage(ResolutionError, expr.name.line, "Can't read local variable in its own initializer.", ResolutionError.VariableShadow, self.allocator);
+            if (varResolved != null and varResolved.? == false) return err.errorMessage(CompileError, expr.name.line, "Can't read local variable in its own initializer.", CompileError.VariableShadow, self.allocator);
         }
         try self.resolveLocal(addr, expr.name);
     }
@@ -151,6 +174,7 @@ pub const Resolver = struct {
     // Look in current scope and above
     fn resolveLocal(self: *Self, addr: usize, name: Token) T {
         var i = self.scopes.items.len;
+        // for each unique address, we can increment by 1
         while (i > 0) {
             i -= 1; 
             const scope = self.scopes.items[i];

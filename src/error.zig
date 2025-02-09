@@ -16,7 +16,12 @@ pub const FileError = error{
 
 pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError || VariableError;
 
-pub const CompilerError = error{ VariableShadow, RepeatVariableDeclaration } || AllocationError;
+pub const CompileError = error{ 
+    VariableShadow, 
+    RepeatVariableDeclaration,
+    IncorrectReturnScope,
+    IncorrectBreakScope,
+} || AllocationError;
 
 pub const FunctionError = error {
     TooManyArguments,
