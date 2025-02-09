@@ -136,6 +136,7 @@ pub const Parser = struct {
         return s.Function.new(name, parameters, body);
     }
 
+
     fn varDeclaration(self: *Parser) ParseError!Stmt {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect variable name");
         var initializer: ?*expr.Expr = null; 
@@ -317,8 +318,16 @@ pub const Parser = struct {
     //                   | call;
     // call           -> primary ( "(" arguments? ")" )* ;
     // arguments      -> expression ( "," expression )* ;
+    // NOTE: Does it make to mix statements and expressions?
+    // anonymousExpr       -> "fun" anon ;
+    // anonymous           -> "(" parameters? ")" block ;
+    //
+    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
+    //
     // primary        -> NUMBER | STRING | "true" | "false" | "nil"
     //                   | "(" expression ")" ;
+
+
 
     fn expression(self: *Parser) ParseError!*expr.Expr {
         return try self.assignment();
@@ -435,14 +444,40 @@ pub const Parser = struct {
             if (arguments.items.len >= 255) {
                 return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 arguments", FunctionError.TooManyArguments, self.allocator);
             }
-            arguments.append(try self.expression()) catch return err.outOfMemory();
+
+            arguments.append(try self.anonymous()) catch return err.outOfMemory();
             while (self.match(1, [1]TokenType{TokenType.COMMA})) {
-                arguments.append(try self.expression()) catch return err.outOfMemory();
+                arguments.append(try self.anonymous()) catch return err.outOfMemory();
             }
         }
         const right_paren = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments");
         return try expr.Call.new(callee, right_paren, arguments, self.allocator);
     }
+
+    fn anonymous(self: *Parser) ParseError!*expr.Expr{
+        if (self.match(1, [1]TokenType{TokenType.FUN})) {
+            const keyword = self.previous();
+            const func: s.Function = (try self.anonymousFunction()).function;
+            return expr.Anonymous.new(keyword, func, self.allocator);
+        }
+        return try self.expression();
+    }
+
+    fn anonymousFunction(self: *Parser) ParseError!s.Stmt {
+        const paren = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after anonymous function expression");
+        var parameters = ArrayList(Token).init(self.allocator);
+        while (!self.check(TokenType.RIGHT_PAREN)) {
+            if (parameters.items.len >= 255) return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 parameters", ParseError.TooManyArguments, self.allocator);
+
+            parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
+            _ = self.match(1, [1]TokenType{TokenType.COMMA});
+        }
+        _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters");
+        _ = try self.consume(TokenType.LEFT_BRACE, "Expect '{{' before anonymous function body");
+        const body = try self.block();
+        return s.Function.new(Token.new(TokenType.NIL, "", null, paren.line), parameters, body);
+    }
+
 
     fn primary(self: *Parser) ParseError!*expr.Expr {
         if (self.match(1, [1]TokenType{TokenType.FALSE})) return try expr.Literal.new(Object{.Bool=false}, self.allocator);
@@ -451,6 +486,9 @@ pub const Parser = struct {
         // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate and copy to allocated memory
         if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return try expr.Literal.new(self.previous().literal, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
+        // TODO: does it make sense to make anonymous a primary
+        if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
+
         if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
             const e = try self.expression();
             _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression");

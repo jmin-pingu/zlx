@@ -1,6 +1,7 @@
 const std = @import("std");
 
 // Custom Imports
+const stmt = @import("stmt.zig");
 const err = @import("error.zig");
 const AllocationError = err.AllocationError;
 const Token = @import("token/token.zig").Token;
@@ -16,6 +17,7 @@ pub const Expr= union(enum) {
     @"var": Var,
     assign: Assign,
     logical: Logical,
+    anonymous: Anonymous,
 
     pub fn accept(self: *Expr, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
@@ -23,7 +25,26 @@ pub const Expr= union(enum) {
         }
     }
 };
- 
+
+
+pub const Anonymous = struct {
+    keyword: Token,
+    function: stmt.Function,
+        
+    pub fn new(keyword: Token, function: stmt.Function, allocator: std.mem.Allocator) AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
+        expr.* = Expr{ 
+            .anonymous=Anonymous{ 
+                .keyword=keyword, .function=function,
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: Anonymous, T: type, visitor: Visitor(T)) T { 
+        return visitor.visitAnonymousExpr(self);
+    }
+};
 
 pub const Call = struct {
     callee: *Expr,
@@ -201,6 +222,7 @@ pub fn Visitor(comptime T: type) type {
         visitAssignExprFn: *const fn (*anyopaque, expr: Assign) T,
         visitLogicalExprFn: *const fn (*anyopaque, expr: Logical) T,
         visitCallExprFn: *const fn (*anyopaque, expr: Call) T,
+        visitAnonymousExprFn: *const fn (*anyopaque, expr: Anonymous) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -250,6 +272,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.Pointer.child.visitCallExpr, .{self, expr});
                 }
+
+                pub fn visitAnonymousExprImpl(pointer: *anyopaque, expr: Anonymous) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.Pointer.child.visitAnonymousExpr, .{self, expr});
+                }
             };
         
             return .{
@@ -262,6 +289,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitAssignExprFn = gen.visitAssignExprImpl,
                 .visitLogicalExprFn = gen.visitLogicalExprImpl,
                 .visitCallExprFn = gen.visitCallExprImpl,
+                .visitAnonymousExprFn = gen.visitAnonymousExprImpl,
             };
         }
 
@@ -295,6 +323,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitCallExpr(self: Self, expr: Call) T {
             return self.visitCallExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitAnonymousExpr(self: Self, expr: Anonymous) T {
+            return self.visitAnonymousExprFn(self.ptr, expr);
         }
     };
 }

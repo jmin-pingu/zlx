@@ -14,6 +14,7 @@ const ExprVisitor = @import("expr.zig").Visitor;
 const s = @import("stmt.zig");
 const StmtVisitor = @import("stmt.zig").Visitor;
 
+const native = @import("native.zig");
 const Function = @import("function.zig").Function;
 const Callable = @import("callable.zig").Callable;
 
@@ -49,41 +50,20 @@ pub const Interpreter = struct {
             .returnValue = null
         };
 
-        const Clock = struct {
-            const S = @This();
-
-            pub fn arity(self: *S) usize {
-                _ = self;
-                return 0;
-            }
-
-            pub fn call(self: *S, interpreter: *Interpreter, arguments: ArrayList(Object), alloc: std.mem.Allocator) FunctionError!Object {
-                _ = alloc;
-                _ = self;
-                _ = interpreter;
-                _ = arguments;
-                std.debug.print("{d}\n", .{@divFloor(std.time.milliTimestamp(), 1000)});
-                return Object{.Nil = null};
-            }
-
-            pub fn toString(self: *S, alloc: std.mem.Allocator) AllocationError![]const u8{
-                _ = self;
-                _ = alloc;
-                return "<native fn>";
-            }
-
-            pub fn initCallable(self: *S) Callable() {
-                return Callable().init(self);
-            }
-        };
-
-        var clock = Clock{};
-        const fntype_ref = allocator.create(FunctionType) catch return err.outOfMemory();
-        fntype_ref.* = FunctionType{ .Native = clock.initCallable()};
-
+        var clock = native.Clock{};
+        const clock_ref = allocator.create(FunctionType) catch return err.outOfMemory();
+        clock_ref.* = FunctionType{ .Native = clock.initCallable()};
         try temp.globals.define(
             "clock", 
-            Object{.Function = fntype_ref}, 
+            Object{.Function = clock_ref}, 
+            allocator);
+
+        var panic = native.Panic{};
+        const panic_ref = allocator.create(FunctionType) catch return err.outOfMemory();
+        panic_ref.* = FunctionType{ .Native = panic.initCallable()};
+        try temp.globals.define(
+            "panic", 
+            Object{.Function = panic_ref}, 
             allocator);
 
         return temp;
@@ -257,6 +237,12 @@ pub const Interpreter = struct {
         }
 
         return try funcType.call(self, arguments, self.allocator);
+    }
+
+    pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
+        const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
+        fntype_ref.*.Declared = try Function.init(expr.function, self.environment);
+        return Object{.Function=fntype_ref};
     }
 
     pub fn visitAssignExpr(self: *Self, expr: e.Assign) T {
