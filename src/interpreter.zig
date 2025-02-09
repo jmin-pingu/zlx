@@ -93,7 +93,6 @@ pub const Interpreter = struct {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
             _ = try self.execute(statement);
-            // self.environment.print(self.allocator) catch return err.outOfMemory();
             // DEBUG: environments
         }     
     }
@@ -125,10 +124,8 @@ pub const Interpreter = struct {
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
         const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
         const fn_ref = self.allocator.create(Function) catch return err.outOfMemory();
-        fn_ref.* = Function.init(stmt);
+        fn_ref.* = try Function.init(stmt, self.environment);
         fntype_ref.*.Declared = fn_ref;
-        // const callable_ref = self.allocator.create(Callable()) catch return RuntimeError.AllocError;
-       
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
         return null;
     }
@@ -162,7 +159,6 @@ pub const Interpreter = struct {
         return null;
     }
 
-    // TODO: suspecting an issue here
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) stmt_T {
          const block_environment = try self.allocator.create(Environment);
          block_environment.* = Environment.init(
@@ -235,6 +231,7 @@ pub const Interpreter = struct {
     // visitorExpr logic
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         const callee = try self.evaluate(expr.callee);
+
         var arguments = ArrayList(Object).init(self.allocator);
         for (expr.arguments.items) |arg| {
             arguments.append(try self.evaluate(arg)) catch return err.outOfMemory();
@@ -259,9 +256,8 @@ pub const Interpreter = struct {
                 .{arguments.items.len, funcType.arity()}
             ) catch return err.outOfMemory();
             return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
-             
         }
-        // NOTE: this is where 
+
         return try funcType.call(self, arguments, self.allocator);
     }
 
@@ -272,7 +268,12 @@ pub const Interpreter = struct {
     }
 
     pub fn visitVarExpr(self: *Self, expr: e.Var) T {
-        const variable = self.environment.get(expr.name.lexeme, self.allocator) catch return err.outOfMemory(); // map to Runtime error
+        const variable = self.environment.get(expr.name.lexeme, self.allocator) catch |get_err| {
+            if (get_err == AllocationError.OutOfMemory) {
+                return err.outOfMemory(); // map to Runtime error
+            }
+            return get_err;
+        };
         return variable;
     }
 
@@ -437,4 +438,24 @@ test "scanner" {
         };
     }     
 
+}
+
+test "recursion-test" {
+    const source = 
+        \\ 
+        ;
+    const Scanner = @import("scanner.zig");
+    const Parser = @import("parser.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var scanner = Scanner.new(source, allocator);
+    const tokens = try scanner.scanTokens();
+
+    var parser = Parser.init(tokens, allocator);
+
+    var statements  = try parser.parse(); 
+    var interpreter = try Interpreter.init(allocator);
+    _ = try interpreter.interpret(&statements);
 }

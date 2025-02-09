@@ -19,7 +19,6 @@ pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError
 pub const FunctionError = error {
     TooManyArguments,
     FunctionCallError,
-    FunctionBodyError, 
 } || AllocationError;
 
 pub const ParseError = error {

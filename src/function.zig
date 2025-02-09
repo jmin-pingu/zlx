@@ -28,9 +28,13 @@ const ArrayList = std.ArrayList;
 pub const Function = struct {
     const Self = @This();
     declared: stmt.Function, 
+    closure: *Environment,
 
-    pub fn init(declared: stmt.Function) Function {
-        return Function{.declared = declared};
+    pub fn init(declared: stmt.Function, closure: *Environment) AllocationError!Function {
+        return Function{
+            .declared = declared,
+            .closure = closure
+        };
     }
 
     // pub fn initCallable(self: *Self) Callable() {
@@ -39,18 +43,21 @@ pub const Function = struct {
     
     pub fn call(self: *Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
         var environment = try allocator.create(Environment);
-        environment.* = Environment.init(allocator, interpreter.globals);
+        environment.* = Environment.init(allocator, self.closure);
+
         for (0..self.declared.params.items.len) |i| {
             try environment.define(self.declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
         }
 
         const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch {
-            return FunctionError.FunctionBodyError;
+            return FunctionError.FunctionCallError;
         };
+
         if (stmtValue != null) {
             return stmtValue.?;
         } else {
-            return FunctionError.FunctionCallError;
+            // Nothing returns is default
+            return Object{.Nil=null};
         }
     }
 
@@ -66,3 +73,4 @@ pub const Function = struct {
         ) catch return err.outOfMemory();
     }
 };
+
