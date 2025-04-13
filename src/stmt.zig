@@ -72,15 +72,21 @@ pub const Function = struct {
 
 
 pub const Break = struct { 
+    keyword: Token,
     associated_condition: *Expr,
 
     pub fn accept(self: Break, T: type, visitor: Visitor(T)) T {
         return visitor.visitBreakStmt(self);
     }
 
-    pub fn new(associated_condition: *Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
+    pub fn new(keyword: Token, associated_condition: *Expr, allocator: std.mem.Allocator) AllocationError!*Stmt {
         const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
-        stmt_ref.* = Stmt{ .@"break"=Break{.associated_condition =associated_condition} };
+        stmt_ref.* = Stmt{ 
+            .@"break"=Break{
+                .keyword=keyword,
+                .associated_condition=associated_condition
+            } 
+        };
         return stmt_ref;
     }
 };
@@ -215,53 +221,53 @@ pub fn Visitor(comptime T: type) type {
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
             const ptr_info = @typeInfo(Ptr);
-            if (ptr_info != .Pointer) @compileError("ptr must be a pointer");
-            if (ptr_info.Pointer.size != .One) @compileError("ptr must be a single item pointer");
+            if (ptr_info != .pointer) @compileError("ptr must be a pointer");
+            if (ptr_info.pointer.size != .one) @compileError("ptr must be a single item pointer");
         
             const gen = struct {
                 pub fn visitExpressionStmtImpl(pointer: *anyopaque, stmt: Expression) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitExpressionStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitExpressionStmt, .{self, stmt});
                 }
 
                 pub fn visitPrintStmtImpl(pointer: *anyopaque, stmt: Print) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitPrintStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitPrintStmt, .{self, stmt});
                 }
 
                 pub fn visitVarStmtImpl(pointer: *anyopaque, stmt: Var) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitVarStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitVarStmt, .{self, stmt});
                 }
 
                 pub fn visitBlockStmtImpl(pointer: *anyopaque, stmt: Block) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitBlockStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitBlockStmt, .{self, stmt});
                 }
 
                 pub fn visitIfStmtImpl(pointer: *anyopaque, stmt: If) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitIfStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitIfStmt, .{self, stmt});
                 }
 
                 pub fn visitWhileStmtImpl(pointer: *anyopaque, stmt: While) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitWhileStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitWhileStmt, .{self, stmt});
                 }
 
                 pub fn visitBreakStmtImpl(pointer: *anyopaque, stmt: Break) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitBreakStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitBreakStmt, .{self, stmt});
                 }
 
                 pub fn visitFunctionStmtImpl(pointer: *anyopaque, stmt: Function) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitFunctionStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitFunctionStmt, .{self, stmt});
                 }
 
                 pub fn visitReturnStmtImpl(pointer: *anyopaque, stmt: Return) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitReturnStmt, .{self, stmt});
+                    return @call(.auto, ptr_info.pointer.child.visitReturnStmt, .{self, stmt});
                 }
             };
         

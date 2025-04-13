@@ -235,7 +235,7 @@ pub const Parser = struct {
 
 
     fn breakStatement(self: *Parser, break_condition: *expr.Expr) ParseError!*Stmt {
-        if (self.match(1, [1]TokenType{TokenType.BREAK}) and self.match(1, [1]TokenType{TokenType.SEMICOLON})) return s.Break.new(break_condition, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.BREAK}) and self.match(1, [1]TokenType{TokenType.SEMICOLON})) return s.Break.new(self.previous(), break_condition, self.allocator);
         if (self.match(1, [1]TokenType{TokenType.FOR})) return self.forStatement();
         if (self.match(1, [1]TokenType{TokenType.IF})) return self.breakIfStatement(break_condition);
         if (self.match(1, [1]TokenType{TokenType.PRINT})) return self.printStatement();

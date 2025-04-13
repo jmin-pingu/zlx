@@ -237,55 +237,55 @@ pub fn Visitor(comptime T: type) type {
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
             const ptr_info = @typeInfo(Ptr);
-            if (ptr_info != .Pointer) @compileError("ptr must be a pointer");
-            if (ptr_info.Pointer.size != .One) @compileError("ptr must be a single item pointer");
+            if (ptr_info != .pointer) @compileError("ptr must be a pointer");
+            if (ptr_info.pointer.size != .one) @compileError("ptr must be a single item pointer");
         
             const gen = struct {
                 pub fn visitBinaryExprImpl(pointer: *anyopaque, expr: Binary) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitBinaryExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitBinaryExpr, .{self, expr});
                 }
 
                 pub fn visitGroupingExprImpl(pointer: *anyopaque, expr: Grouping) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitGroupingExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitGroupingExpr, .{self, expr});
                 }
 
                 pub fn visitLiteralExprImpl(pointer: *anyopaque, expr: Literal) T {
                     // Cast pointer to correct alignment and type
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     // Call underlying function
-                    return @call(.auto, ptr_info.Pointer.child.visitLiteralExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitLiteralExpr, .{self, expr});
                 }
 
                 pub fn visitUnaryExprImpl(pointer: *anyopaque, expr: Unary) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitUnaryExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitUnaryExpr, .{self, expr});
                 }
 
                 pub fn visitVarExprImpl(pointer: *anyopaque, expr: Var, addr: usize) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitVarExpr, .{self, expr, addr});
+                    return @call(.auto, ptr_info.pointer.child.visitVarExpr, .{self, expr, addr});
                 }
 
                 pub fn visitAssignExprImpl(pointer: *anyopaque, expr: Assign, addr: usize) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitAssignExpr, .{self, expr, addr});
+                    return @call(.auto, ptr_info.pointer.child.visitAssignExpr, .{self, expr, addr});
                 }
 
                 pub fn visitLogicalExprImpl(pointer: *anyopaque, expr: Logical) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitLogicalExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitLogicalExpr, .{self, expr});
                 }
 
                 pub fn visitCallExprImpl(pointer: *anyopaque, expr: Call) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitCallExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitCallExpr, .{self, expr});
                 }
 
                 pub fn visitAnonymousExprImpl(pointer: *anyopaque, expr: Anonymous) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.visitAnonymousExpr, .{self, expr});
+                    return @call(.auto, ptr_info.pointer.child.visitAnonymousExpr, .{self, expr});
                 }
             };
         

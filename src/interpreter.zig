@@ -48,7 +48,7 @@ pub const Interpreter = struct {
         const env_ref = allocator.create(Environment) catch return err.outOfMemory();
         // NOTE: parent environment
         env_ref.* = Environment.init(allocator, null);
-        const temp = .{ 
+        const temp: Self = .{ 
             .environment= env_ref,
             .globals = env_ref,
             .allocator = allocator,

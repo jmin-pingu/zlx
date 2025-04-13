@@ -19,24 +19,24 @@ pub fn Callable() type {
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
             const ptr_info = @typeInfo(Ptr);
-            if (ptr_info != .Pointer) @compileError("ptr must be a pointer");
-            if (ptr_info.Pointer.size != .One) @compileError("ptr must be a single item pointer");
+            if (ptr_info != .pointer) @compileError("ptr must be a pointer");
+            if (ptr_info.pointer.size != .one) @compileError("ptr must be a single item pointer");
         
             const gen = struct {
 
                 pub fn callImpl(pointer: *anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.call, .{self, interpreter, arguments, allocator});
+                    return @call(.auto, ptr_info.pointer.child.call, .{self, interpreter, arguments, allocator});
                 }
 
                 pub fn arityImpl(pointer: *anyopaque) usize {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.arity, .{self});
+                    return @call(.auto, ptr_info.pointer.child.arity, .{self});
                 }
 
                 pub fn toStringImpl(pointer: *anyopaque, allocator: std.mem.Allocator) AllocationError![]const u8 {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
-                    return @call(.auto, ptr_info.Pointer.child.toString, .{self, allocator});
+                    return @call(.auto, ptr_info.pointer.child.toString, .{self, allocator});
                 }
             };
 

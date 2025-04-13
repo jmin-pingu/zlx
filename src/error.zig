@@ -56,7 +56,7 @@ pub fn outOfMemory() AllocationError {
 }
 
 pub fn errorMessage(comptime ErrorType: type, line_number: ?usize, message: []const u8, err: ErrorType, allocator: std.mem.Allocator) ErrorType {
-    if (@typeInfo(ErrorType) != .ErrorSet) @compileError("ErrorType must be an .ErrorSet");
+    if (@typeInfo(ErrorType) != .error_set) @compileError("ErrorType must be an .ErrorSet");
 
     if (line_number) |num| {
         std.debug.print(
