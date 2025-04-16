@@ -53,10 +53,14 @@ pub const Parser = struct {
     // STATEMENT GRAMMAR RULES
     // program        -> declaration * EOF ; 
     //
-    // declaration    -> funDecl 
+    // declaration    -> classDecl
+    //                   | funDecl 
     //                   | varDecl 
     //                   | statement ;
     //
+    // classDecl      -> "class" IDENTIFIER "{" function* "}" ;
+    // function       -> IDENTIFIER "(" parameters? ")" block ; 
+    // parameters     -> IDENTIFIER ( "," IDENTIFIER  )* ; 
     // funDecl        -> "fun" function ;
     //
     // function       -> IDENTIFIER "(" parameters? ")" block ;
@@ -107,6 +111,7 @@ pub const Parser = struct {
     
     fn declaration(self: *Parser) ParseError!*Stmt {
         try {
+            if (self.match(1, [1]TokenType{TokenType.CLASS})) return try self.classDeclaration();
             if (self.match(1, [1]TokenType{TokenType.FUN})) return try self.function("function");
             if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
             return try self.statement();
@@ -115,6 +120,20 @@ pub const Parser = struct {
             self.synchronize();
             return ParseError.SyntaxError;
         };
+    }
+
+    fn classDeclaration(self: *Parser) ParseError!*Stmt {
+        const name = try self.consume(TokenType.IDENTIFIER, "Expect class name.");
+        _ = try self.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
+
+        var methods = ArrayList(*s.Stmt).init(self.allocator);
+        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) {
+            try methods.append(try self.function("method"));
+        }
+
+        _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
+
+        return s.Class.new(name, methods, self.allocator);
     }
 
     fn function(self: *Parser, kind: []const u8) ParseError!*Stmt {

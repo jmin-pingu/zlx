@@ -11,6 +11,16 @@ const Function = @import("../function.zig").Function;
 const Interpreter = @import("../interpreter.zig").Interpreter;
 const c = @import("../callable.zig");
  
+pub const Class = struct {
+    name: []const u8,
+
+    pub fn init(name: []const u8) Class {
+        return Class{
+            .name=name
+        };
+    }
+};
+
 pub const FunctionType = union(enum) {
     Declared: Function,
     Native: c.Callable(),
@@ -35,7 +45,7 @@ pub const FunctionType = union(enum) {
 };
 
 // Literal should be defined similar to Object in Java
-pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function};
+pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function, Class};
 pub const Object = union(Tag){
     Identifier: []const u8,
     String: []const u8,
@@ -44,6 +54,7 @@ pub const Object = union(Tag){
     Nil: ?void,
     Bool: bool,
     @"Function": *FunctionType,
+    Class: Class,
 
     pub fn checkTag(self: Object, tag: Tag) bool {
         return std.mem.eql(u8, @tagName(self), @tagName(tag));
@@ -104,6 +115,9 @@ pub const Object = union(Tag){
             },
             .String => |val| {
                 return val;
+            },
+            .Class => |class| {
+                return class.name;
             },
             .Function => |functionType|{
                 switch (functionType.*) {

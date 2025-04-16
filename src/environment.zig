@@ -46,7 +46,12 @@ pub const Environment = struct {
         return ancestor_env;
     }
     
-    pub fn define(self: *Environment, name: []const u8, value: ?Object, allocator: std.mem.Allocator) AllocationError!void {
+    pub fn define(
+        self: *Environment, 
+        name: []const u8, 
+        value: ?Object, 
+        allocator: std.mem.Allocator
+    ) AllocationError!void {
         const copied_name = allocator.alloc(u8, name.len) catch return err.outOfMemory();
         @memcpy(copied_name, name);
         self.values.put(copied_name, value) catch return err.outOfMemory();
@@ -90,7 +95,12 @@ pub const Environment = struct {
     }
 
     
-    pub fn assign(self: *Environment, name: Token, value: Object, allocator: std.mem.Allocator) VariableError!void {
+    pub fn assign(
+        self: *Environment, 
+        name: Token, 
+        value: Object, 
+        allocator: std.mem.Allocator
+    ) VariableError!void {
         if (self.values.get(name.lexeme)) |_| {
             self.values.put(name.lexeme, value) catch return err.outOfMemory();
         } else if (self.enclosing) |parent_environment| {

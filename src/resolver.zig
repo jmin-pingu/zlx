@@ -88,6 +88,11 @@ pub const Resolver = struct {
     }
 
     // Implement Statements
+    pub fn visitDeclarationStmt(self: *Self, stmt: s.Declaration) T {
+        try self.declare(stmt.name);
+        try self.define(stmt.name);
+    }
+
     pub fn visitBlockStmt(self: *Self, stmt: s.Block) T {
         try self.beginScope();
         for (stmt.statements.items) |statement| {
@@ -135,6 +140,11 @@ pub const Resolver = struct {
         try self.resolveExpr(stmt.condition);
         try self.resolveStatement(stmt.then_branch);
         if (stmt.else_branch != null) try self.resolveStatement(stmt.else_branch.?);
+    }
+
+    pub fn visitClassStmt(self: *Self, stmt: s.Class) T {
+        try self.declare(stmt.name);
+        try self.define(stmt.name);
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) T {

@@ -8,6 +8,7 @@ const TokenType = @import("token/token_type.zig").TokenType;
 const Object= @import("token/object.zig").Object;
 const Tag = @import("token/object.zig").Tag;
 const FunctionType = @import("token/object.zig").FunctionType;
+const Class = @import("token/object.zig").Class;
 
 const e= @import("expr.zig");
 const ExprVisitor = @import("expr.zig").Visitor;
@@ -113,6 +114,12 @@ pub const Interpreter = struct {
     }
 
     // visitorStmt logic
+    pub fn visitClassStmt(self: *Self, stmt: s.Class) stmt_T {
+        try self.environment.define(stmt.name.lexeme, null, self.allocator);
+        try self.environment.assign(stmt.name, Object{.Class=Class{.name=stmt.name.lexeme}}, self.allocator);
+        return null;
+    }
+
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
         const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
         fntype_ref.*.Declared = try Function.init(stmt, self.environment);

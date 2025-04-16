@@ -19,11 +19,32 @@ pub const Stmt= union(enum) {
     @"break": Break,
     function: Function,
     @"return": Return,
+    class: Class,
 
     pub fn accept(self: *Stmt, T: type, visitor: Visitor(T)) T {
         switch (self.*) {
             inline else => |case| return case.accept(T, visitor),
         }
+    }
+};
+
+pub const Class = struct { 
+    name: Token,
+    methods: ArrayList(*Stmt),
+
+    pub fn accept(self: Class, T: type, visitor: Visitor(T)) T {
+        return visitor.visitClassStmt(self);
+    }
+
+    pub fn new(name: Token, methods: ArrayList(*Stmt), allocator: std.mem.Allocator) AllocationError!*Stmt {
+        const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
+        stmt_ref.* = Stmt { 
+            .class= Class {
+                .name = name, 
+                .methods = methods
+            } 
+        };
+        return stmt_ref;
     }
 };
 
@@ -217,6 +238,7 @@ pub fn Visitor(comptime T: type) type {
         visitBreakStmtFn: *const fn (*anyopaque, stmt: Break) T,
         visitFunctionStmtFn: *const fn (*anyopaque, stmt: Function) T,
         visitReturnStmtFn: *const fn (*anyopaque, stmt: Return) T,
+        visitClassStmtFn: *const fn (*anyopaque, stmt: Class) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -269,6 +291,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.pointer.child.visitReturnStmt, .{self, stmt});
                 }
+
+                pub fn visitClassStmtImpl(pointer: *anyopaque, stmt: Class) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.pointer.child.visitClassStmt, .{self, stmt});
+                }
             };
         
             return .{
@@ -282,6 +309,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitBreakStmtFn = gen.visitBreakStmtImpl,
                 .visitFunctionStmtFn = gen.visitFunctionStmtImpl,
                 .visitReturnStmtFn = gen.visitReturnStmtImpl,
+                .visitClassStmtFn = gen.visitClassStmtImpl,
             };
         }
 
@@ -319,6 +347,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitReturnStmt(self: Self, stmt: Return) T {
             return self.visitReturnStmtFn(self.ptr, stmt);
+        }
+
+        pub inline fn visitClassStmt(self: Self, stmt: Class) T {
+            return self.visitClassStmtFn(self.ptr, stmt);
         }
     };
 }
