@@ -1,14 +1,12 @@
 const std = @import("std");
-const stmt = @import("stmt.zig");
-const Callable = @import("callable.zig").Callable;
-const CallableType = @import("callable.zig").CallableType;
-const Interpreter = @import("interpreter.zig").Interpreter;
-const Environment = @import("environment.zig").Environment;
-const Expr = @import("expr.zig").Expr;
-const Object = @import("token/object.zig").Object;
-const err = @import("error.zig");
-const AllocationError = err.AllocationError;
-const FunctionError = err.FunctionError;
+
+const stmt = @import("../stmt.zig");
+const Expr = @import("../expr.zig").Expr;
+const Object = @import("../object.zig").Object;
+
+const err = @import("../../error.zig");
+const Interpreter = @import("../../interpreter.zig").Interpreter;
+const Environment = @import("../../environment.zig").Environment;
 
 const ArrayList = std.ArrayList;
 
@@ -17,14 +15,14 @@ pub const Function = struct {
     declared: stmt.Function, 
     closure: *Environment,
 
-    pub fn init(declared: stmt.Function, closure: *Environment) AllocationError!Function {
+    pub fn init(declared: stmt.Function, closure: *Environment) err.AllocationError!Function {
         return Function{
             .declared = declared,
             .closure = closure
         };
     }
     
-    pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
+    pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) err.FunctionError!Object {
         var environment = try allocator.create(Environment);
         environment.* = Environment.init(allocator, self.closure);
 
@@ -33,7 +31,7 @@ pub const Function = struct {
         }
 
         const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch {
-            return FunctionError.FunctionCallError;
+            return err.FunctionError.FunctionCallError;
         };
 
         if (stmtValue != null) {
@@ -46,7 +44,7 @@ pub const Function = struct {
         return self.declared.params.items.len;
     }
 
-    pub fn toString(self: Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
+    pub fn toString(self: Self, allocator: std.mem.Allocator) err.AllocationError![]const u8 {
         return std.fmt.allocPrint(
             allocator,
             "<fn {s}>",

@@ -11,7 +11,7 @@ const err= @import("error.zig");
 const Error= err.Error;
 const FileError= err.FileError;
 
-const expr = @import("expr.zig");
+const expr = @import("primitives/expr.zig");
 
 // TODO: need to think deeply about error handling and error sets; additionally need to think about what errors I want to expose to the user
 // TODO: need to think deeply about how to have Literal's persist in Environment

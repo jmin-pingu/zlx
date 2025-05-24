@@ -1,13 +1,43 @@
 const std = @import("std");
-const Interpreter = @import("interpreter.zig").Interpreter;
-const Object = @import("token/object.zig").Object;
-const Expr = @import("expr.zig").Expr;
-const stmt = @import("stmt.zig");
-const AllocationError = @import("error.zig").AllocationError;
-const FunctionError = @import("error.zig").FunctionError;
+const Class = @import("class.zig").Class;
+const Function = @import("function.zig").Function;
+const Object = @import("../object.zig").Object;
+const Expr = @import("../expr.zig").Expr;
+const stmt = @import("../stmt.zig");
+
+const Interpreter = @import("../../interpreter.zig").Interpreter;
+const AllocationError = @import("../../error.zig").AllocationError;
+const FunctionError = @import("../../error.zig").FunctionError;
+
 const ArrayList = std.ArrayList;
 
-pub fn Callable() type {
+pub const Callable = union(enum) {
+    Declared: Function,
+    Native: CallableInterface(),
+    Class: Class,
+
+    const Self = @This();
+
+    pub fn arity(self: Self) usize {
+        switch (self) {
+            inline else => |case| return case.arity(),
+        }
+    }
+
+    pub fn toString(self: Self, allocator: std.mem.Allocator) AllocationError![]const u8 {
+        switch (self) {
+            inline else => |case| return case.toString(allocator),
+        }
+    }
+
+    pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
+        switch (self) {
+            inline else => |case| return case.call(interpreter, arguments, allocator),
+        }
+    }
+};
+
+pub fn CallableInterface() type {
     return struct {
         const T = FunctionError!Object;
         const Self = @This();
@@ -23,7 +53,6 @@ pub fn Callable() type {
             if (ptr_info.pointer.size != .one) @compileError("ptr must be a single item pointer");
         
             const gen = struct {
-
                 pub fn callImpl(pointer: *anyopaque, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) T {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.pointer.child.call, .{self, interpreter, arguments, allocator});

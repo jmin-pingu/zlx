@@ -3,10 +3,9 @@ const std = @import("std");
 const AutoHashMap = std.AutoHashMap;
 const StringHashMap = std.StringHashMap;
 
-const Object = @import("token/object.zig").Object;
-const Token = @import("token/token.zig").Token;
-const Function = @import("function.zig").Function;
-const Callable = @import("callable.zig").Callable;
+const Object = @import("primitives/object.zig").Object;
+const Token = @import("primitives/token.zig").Token;
+const Function = @import("primitives/callable/function.zig").Function;
 
 const err = @import("error.zig");
 const VariableError = @import("error.zig").VariableError;

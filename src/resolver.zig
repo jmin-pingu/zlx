@@ -3,14 +3,12 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 
-const Token = @import("token/token.zig").Token;
-const Object= @import("token/object.zig").Object;
-
-const e= @import("expr.zig");
-const ExprVisitor = @import("expr.zig").Visitor;
-
-const s = @import("stmt.zig");
-const StmtVisitor = @import("stmt.zig").Visitor;
+const Token = @import("primitives/token.zig").Token;
+const Object= @import("primitives/object.zig").Object;
+const e= @import("primitives/expr.zig");
+const ExprVisitor = e.Visitor;
+const s = @import("primitives/stmt.zig");
+const StmtVisitor = s.Visitor;
 
 const Interpreter = @import("interpreter.zig").Interpreter;
 

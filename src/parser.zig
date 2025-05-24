@@ -2,14 +2,12 @@ const std = @import("std");
 
 const ArrayList = std.ArrayList;
 
-const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
-const Object = @import("token/object.zig").Object;
-
-const expr = @import("expr.zig");
-
-const Stmt = @import("stmt.zig").Stmt;
-const s = @import("stmt.zig");
+const Token = @import("primitives/token.zig").Token;
+const TokenType = @import("primitives/token_type.zig").TokenType;
+const Object = @import("primitives/object.zig").Object;
+const expr = @import("primitives/expr.zig");
+const Stmt = @import("primitives/stmt.zig").Stmt;
+const s = @import("primitives/stmt.zig");
 
 const err = @import("error.zig");
 const Error = err.Error;
@@ -48,67 +46,6 @@ pub const Parser = struct {
         return statements;
     }
 
-    // Parsing Statements
-    //
-    // STATEMENT GRAMMAR RULES
-    // program        -> declaration * EOF ; 
-    //
-    // declaration    -> classDecl
-    //                   | funDecl 
-    //                   | varDecl 
-    //                   | statement ;
-    //
-    // classDecl      -> "class" IDENTIFIER "{" function* "}" ;
-    // function       -> IDENTIFIER "(" parameters? ")" block ; 
-    // parameters     -> IDENTIFIER ( "," IDENTIFIER  )* ; 
-    // funDecl        -> "fun" function ;
-    //
-    // function       -> IDENTIFIER "(" parameters? ")" block ;
-    //
-    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
-    //
-    // varDecl        -> "var" IDENTIFIER ( "=" expression )? ";" ;
-    //
-    // statement      -> exprStmt
-    //                   | forStmt
-    //                   | ifStmt
-    //                   | printStmt
-    //                   | returnStmt
-    //                   | whileStmt
-    //                   | block ;
-    //
-    // returnStmt     -> "return" expression? ";" ;
-    //                      
-    // forStmt        -> "for" "(" ( varDecl | exprStmt | ; )
-    //                   expression? ";"
-    //                   expression? ")" break_statement ;
-    //
-    // whileStmt      -> "while" "(" expression ")" break_statement ;
-    // 
-    // TODO: rethink structure of `break` in the grammar
-    // breakStatement -> break 
-    //                   | exprStmt
-    //                   | forStmt
-    //                   | breakIfStmt
-    //                   | printStmt
-    //                   | returnStmt
-    //                   | whileStm 
-    //                   | breakBlock ;
-    //
-    // breakIfStmt    -> if "(" expression ")" breakStatement
-    //                   ( "else" breakStatement )? ;  
-    //
-    // breakBlock     -> "{" breakDecl* "}" ;
-    //
-    // breakDecl      -> funDecl
-    //                   | varDecl 
-    //                   | breakStatement ;
-    //
-    // ifStmt         -> if "(" expression ")" statement
-    //                   ( "else" statement )? ;  
-    //
-    // block          -> "{" declaration* "}" ;
-    
     fn declaration(self: *Parser) ParseError!*Stmt {
         try {
             if (self.match(1, [1]TokenType{TokenType.CLASS})) return try self.classDeclaration();
@@ -310,6 +247,7 @@ pub const Parser = struct {
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
         return statements;
     }
+
     fn printStatement(self: *Parser) ParseError!*Stmt {
         const e = try self.expression(); 
         _ = try self.consume(TokenType.SEMICOLON, "Expect ';' after value");
@@ -322,31 +260,6 @@ pub const Parser = struct {
         return try s.Expression.new(e, self.allocator);
     }
     
-    // Parsing Expressions
-    //
-    // EXPRESSION GRAMMAR RULES
-    // expression     -> assignment ;
-    // assignment     -> IDENTIFIER "=" assignment 
-    //                   | logic_or 
-    // logic_or       -> logic_and ( "or" logic_and )* ;
-    // logic_and      -> equality ( "and" equality )*;
-    // equality       -> comparison ( ( "!=" | "==" ) comparison )* ;
-    // comparison     -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    // term           -> factor ( ( "-" | "+" ) factor )* ;
-    // factor         -> unary ( ( "/" | "*" ) unary )* ;
-    // unary          -> ( "!" | "-" ) unary
-    //                   | call;
-    // call           -> primary ( "(" arguments? ")" )* ;
-    // arguments      -> expression ( "," expression )* ;
-    // primary        -> anonymous | NUMBER | STRING | "true" | "false" | "nil"
-    //                   | "(" expression ")" ;
-    //
-    // anonymousExpr  -> "fun" anon ;
-    // anonymous      -> "(" parameters? ")" block ;
-    // parameters     -> IDENTIFIER ( "," IDENTIFIER )* ;
-
-
-
     fn expression(self: *Parser) ParseError!*expr.Expr {
         return try self.assignment();
     }

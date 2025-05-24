@@ -3,22 +3,20 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const AutoHashMap = std.AutoHashMap;
 
-const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
-const Object= @import("token/object.zig").Object;
-const Tag = @import("token/object.zig").Tag;
-const FunctionType = @import("token/object.zig").FunctionType;
-const Class = @import("token/object.zig").Class;
+const Token = @import("primitives/token.zig").Token;
+const TokenType = @import("primitives/token_type.zig").TokenType;
+const Object= @import("primitives/object.zig").Object;
+const Tag = @import("primitives/object.zig").Tag;
+const e= @import("primitives/expr.zig");
+const ExprVisitor = e.Visitor;
+const s = @import("primitives/stmt.zig");
+const StmtVisitor = s.Visitor;
 
-const e= @import("expr.zig");
-const ExprVisitor = @import("expr.zig").Visitor;
-
-const s = @import("stmt.zig");
-const StmtVisitor = @import("stmt.zig").Visitor;
-
-const native = @import("native.zig");
-const Function = @import("function.zig").Function;
-const Callable = @import("callable.zig").Callable;
+const Callable = @import("primitives/callable/callable.zig").Callable;
+const CallableInterface = @import("primitives/callable/callable.zig").CallableInterface;
+const native = @import("primitives/callable/native.zig");
+const Function = @import("primitives/callable/function.zig").Function;
+const Class = @import("primitives/callable/class.zig").Class;
 
 const Environment = @import("environment.zig").Environment;
 
@@ -30,7 +28,6 @@ const FunctionError = err.FunctionError;
 
 // TODO: rethink this struct and whether I want the `Visitor`s as fields
 // TODO: Interpreter defines RuntimeError land
-
 pub const Interpreter = struct {
     const Self = @This();
     const T: type = RuntimeError!Object;
@@ -58,16 +55,16 @@ pub const Interpreter = struct {
         };
 
         var clock = native.Clock{};
-        const clock_ref = allocator.create(FunctionType) catch return err.outOfMemory();
-        clock_ref.* = FunctionType{ .Native = clock.initCallable()};
+        const clock_ref = allocator.create(Callable) catch return err.outOfMemory();
+        clock_ref.* = Callable{ .Native = clock.initCallable()};
         try temp.globals.define(
             "clock", 
             Object{.Function = clock_ref}, 
             allocator);
 
         var panic = native.Panic{};
-        const panic_ref = allocator.create(FunctionType) catch return err.outOfMemory();
-        panic_ref.* = FunctionType{ .Native = panic.initCallable()};
+        const panic_ref = allocator.create(Callable) catch return err.outOfMemory();
+        panic_ref.* = Callable{ .Native = panic.initCallable()};
         try temp.globals.define(
             "panic", 
             Object{.Function = panic_ref}, 
@@ -96,12 +93,16 @@ pub const Interpreter = struct {
     // private methods
     fn evaluate(self: *Self, expr: *e.Expr) T {
         const visitor = self.initExprVisitor();
+        // DEBUGGING
+        expr.activeField();
         return expr.accept(T, visitor);
     }
 
 
     fn execute(self: *Self, stmt: *s.Stmt) stmt_T {
         const visitor = self.initStmtVisitor();
+        // DEBUGGING
+        stmt.activeField();
         return try stmt.accept(stmt_T, visitor);
     }
 
@@ -115,13 +116,14 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitClassStmt(self: *Self, stmt: s.Class) stmt_T {
-        try self.environment.define(stmt.name.lexeme, null, self.allocator);
-        try self.environment.assign(stmt.name, Object{.Class=Class{.name=stmt.name.lexeme}}, self.allocator);
+        const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
+        class_type_ref.*.Class = Class.init(stmt.name.lexeme);
+        try self.environment.define(stmt.name.lexeme, Object{.Class=class_type_ref}, self.allocator);
         return null;
     }
 
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
-        const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
+        const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
         fntype_ref.*.Declared = try Function.init(stmt, self.environment);
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
         return null;
@@ -235,6 +237,7 @@ pub const Interpreter = struct {
 
         var funcType = switch (callee) {
             .Function => |funcType| funcType.*,
+            .Class => |funcType| funcType.*,
             else => {
                 const err_msg = std.fmt.allocPrint(
                     self.allocator, 
@@ -258,7 +261,7 @@ pub const Interpreter = struct {
     }
 
     pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
-        const fntype_ref = self.allocator.create(FunctionType) catch return err.outOfMemory();
+        const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
         fntype_ref.*.Declared = try Function.init(expr.function, self.environment);
         return Object{.Function=fntype_ref};
     }

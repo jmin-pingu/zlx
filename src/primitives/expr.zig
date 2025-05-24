@@ -2,10 +2,9 @@ const std = @import("std");
 
 // Custom Imports
 const stmt = @import("stmt.zig");
-const err = @import("error.zig");
-const AllocationError = err.AllocationError;
-const Token = @import("token/token.zig").Token;
-const Object = @import("token/object.zig").Object;
+const Token = @import("token.zig").Token;
+const Object = @import("object.zig").Object;
+const err = @import("../error.zig");
 const ArrayList = std.ArrayList;
 
 pub const Expr= union(enum) {
@@ -24,6 +23,12 @@ pub const Expr= union(enum) {
             inline else => |case| return case.accept(T, visitor, @intFromPtr(self)),
         }
     }
+
+    pub fn activeField(self: *Expr) void {
+        switch (self.*) {
+            inline else => |s| std.debug.print("  |---{}\n", .{@TypeOf(s)}),
+        }
+    }
 };
 
 
@@ -31,7 +36,7 @@ pub const Anonymous = struct {
     keyword: Token,
     function: stmt.Function,
         
-    pub fn new(keyword: Token, function: stmt.Function, allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(keyword: Token, function: stmt.Function, allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .anonymous=Anonymous{ 
@@ -52,7 +57,7 @@ pub const Call = struct {
     paren: Token,
     arguments: ArrayList(*Expr),
         
-    pub fn new(callee: *Expr, paren: Token, arguments: ArrayList(*Expr), allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(callee: *Expr, paren: Token, arguments: ArrayList(*Expr), allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .call=Call{ 
@@ -78,7 +83,7 @@ pub const Logical = struct {
         operator: Token, 
         right: *Expr, 
         allocator: std.mem.Allocator
-    ) AllocationError!*Expr {
+    ) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr { 
             .logical= Logical{ 
@@ -103,7 +108,7 @@ pub const Binary = struct {
         operator: Token, 
         right: *Expr, 
         allocator: std.mem.Allocator
-    ) AllocationError!*Expr {
+    ) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr { 
             .binary= Binary{ 
@@ -124,7 +129,7 @@ pub const Grouping = struct {
     pub fn new(
         expression: *Expr, 
         allocator: std.mem.Allocator
-    ) AllocationError!*Expr {
+    ) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return  err.outOfMemory();
         expr.* = Expr{ 
             .grouping= Grouping{ 
@@ -143,7 +148,7 @@ pub const Grouping = struct {
 pub const Literal = struct {
     // NOTE: naming, I really don't like having LiteralValue in token.zig 
     value: Object,
-    pub fn new(value: Object, allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(value: Object, allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .literal=Literal{ 
@@ -162,7 +167,7 @@ pub const Literal = struct {
 pub const Unary = struct {
     operator: Token,
     right: *Expr,
-    pub fn new(operator: Token, right: *Expr, allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(operator: Token, right: *Expr, allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .unary=Unary{ 
@@ -180,7 +185,7 @@ pub const Unary = struct {
 
 pub const Var = struct {
     name: Token,
-    pub fn new(name: Token, allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(name: Token, allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         // std.debug.print("createVarExpr: name {s}, addr {d}\n", .{name.lexeme, @intFromPtr(expr)});
         expr.* = Expr{ 
@@ -199,7 +204,7 @@ pub const Var = struct {
 pub const Assign = struct {
     name: Token,
     value: *Expr,
-    pub fn new(name: Token, value: *Expr, allocator: std.mem.Allocator) AllocationError!*Expr {
+    pub fn new(name: Token, value: *Expr, allocator: std.mem.Allocator) err.AllocationError!*Expr {
         const expr = allocator.create(Expr) catch return err.outOfMemory();
         expr.* = Expr{ 
             .assign=Assign{ 

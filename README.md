@@ -6,6 +6,8 @@
 
 - [X] KEY: Need to improve error tooling, messaging, and handling.
 - [X] KEY: need to reason about interfaces (blog post incoming
+- [ ] Reorganize `Callable`. Combine `function.zig`, `callable.zig` (`GenericCallable`), and
+  instances logic
 - [ ] PRIORITY: think how to add test cases (both unit + integration)
   - [ ] Implement test suite in target language via native functions (`zlox`)
 - [X] add closures

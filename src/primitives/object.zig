@@ -7,44 +7,12 @@ const TokenType = token_type.TokenType;
 const err = @import("../error.zig");
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
-const Function = @import("../function.zig").Function;
 const Interpreter = @import("../interpreter.zig").Interpreter;
-const c = @import("../callable.zig");
+
+const Callable = @import("callable/callable.zig").Callable;
+const Function = @import("callable/function.zig").Function;
  
-pub const Class = struct {
-    name: []const u8,
-
-    pub fn init(name: []const u8) Class {
-        return Class{
-            .name=name
-        };
-    }
-};
-
-pub const FunctionType = union(enum) {
-    Declared: Function,
-    Native: c.Callable(),
-
-    pub fn arity(self: FunctionType) usize {
-        switch (self) {
-            inline else => |case| return case.arity(),
-        }
-    }
-
-    pub fn toString(self: FunctionType, allocator: std.mem.Allocator) AllocationError![]const u8 {
-        switch (self) {
-            inline else => |case| return case.toString(allocator),
-        }
-    }
-
-    pub fn call(self: FunctionType, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) FunctionError!Object {
-        switch (self) {
-            inline else => |case| return case.call(interpreter, arguments, allocator),
-        }
-    }
-};
-
-// Literal should be defined similar to Object in Java
+// Literal should be defined similar to Object in Java, think of Object as Box-ing values
 pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function, Class};
 pub const Object = union(Tag){
     Identifier: []const u8,
@@ -53,8 +21,8 @@ pub const Object = union(Tag){
     // TODO: rethink whether ?void makes sense for Nil
     Nil: ?void,
     Bool: bool,
-    @"Function": *FunctionType,
-    Class: Class,
+    @"Function": *Callable,
+    Class: *Callable,
 
     pub fn checkTag(self: Object, tag: Tag) bool {
         return std.mem.eql(u8, @tagName(self), @tagName(tag));
@@ -116,13 +84,14 @@ pub const Object = union(Tag){
             .String => |val| {
                 return val;
             },
-            .Class => |class| {
-                return class.name;
+            .Class => |callableClass| {
+                return try callableClass.Class.toString(allocator);
             },
             .Function => |functionType|{
                 switch (functionType.*) {
                     .Native => return try functionType.Native.toString(allocator),
                     .Declared => return try functionType.Declared.toString(allocator),
+                    .Class => return try functionType.Class.toString(allocator),
                 } 
             },
         }

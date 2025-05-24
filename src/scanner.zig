@@ -3,8 +3,8 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const StaticStringMap = std.StaticStringMap;
 
-const Token = @import("token/token.zig").Token;
-const TokenType = @import("token/token_type.zig").TokenType;
+const Token = @import("primitives/token.zig").Token;
+const TokenType = @import("primitives/token_type.zig").TokenType;
 
 const err = @import("error.zig");
 const ScannerError = err.ScannerError;
