@@ -1,11 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-
-const FunctionType = @import("../object.zig").FunctionType;
 const Object = @import("../object.zig").Object;
-
 const CallableInterface = @import("callable.zig").CallableInterface;
-
 const err = @import("../../error.zig");
 const Interpreter = @import("../../interpreter.zig").Interpreter;
 

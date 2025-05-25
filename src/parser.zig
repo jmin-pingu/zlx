@@ -275,9 +275,12 @@ pub const Parser = struct {
             value = try self.assignment();
 
             switch (greedy_expr.*) {
-                .@"var"=> |@"var"| {
+                .@"var" => |@"var"| {
                     const name = @"var".name;
                     return try expr.Assign.new(name, value, self.allocator);
+                },
+                .get => |get| {
+                    return try expr.Set.new(get.name, get.object, value, self.allocator);
                 },
                 else => {
                     // TODO: MESSAGE: expected either a variable or declaration on LHS of =
@@ -362,6 +365,9 @@ pub const Parser = struct {
         while (true) {
             if (self.match(1, [1]TokenType{TokenType.LEFT_PAREN})) {
                 builder_expr = try self.finishCall(builder_expr);
+            } else if (self.match(1, [1]TokenType{TokenType.DOT})) {
+                const name = try self.consume(TokenType.IDENTIFIER, "Expect property name after '.'.");
+                builder_expr = try expr.Get.new(name, builder_expr, self.allocator);
             } else {
                 break;
             }

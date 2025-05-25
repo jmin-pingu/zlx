@@ -1,6 +1,7 @@
 const std = @import("std");
 const Class = @import("class.zig").Class;
 const Function = @import("function.zig").Function;
+const Instance = @import("instance.zig").Instance;
 const Object = @import("../object.zig").Object;
 const Expr = @import("../expr.zig").Expr;
 const stmt = @import("../stmt.zig");
@@ -15,6 +16,7 @@ pub const Callable = union(enum) {
     Declared: Function,
     Native: CallableInterface(),
     Class: Class,
+    Instance: *Instance,
 
     const Self = @This();
 

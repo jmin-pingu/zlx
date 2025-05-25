@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const stmt = @import("../stmt.zig");
-const Expr = @import("../expr.zig").Expr;
 const Object = @import("../object.zig").Object;
 
 const err = @import("../../error.zig");

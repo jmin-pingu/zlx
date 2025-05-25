@@ -6,16 +6,20 @@
 
 - [X] KEY: Need to improve error tooling, messaging, and handling.
 - [X] KEY: need to reason about interfaces (blog post incoming
-- [ ] Reorganize `Callable`. Combine `function.zig`, `callable.zig` (`GenericCallable`), and
+- [X] Reorganize `Callable`. Combine `function.zig`, `callable.zig` (`GenericCallable`), and
   instances logic
-- [ ] PRIORITY: think how to add test cases (both unit + integration)
+- [ ] PRIORITY: think how to add test cases (both unit + integration), **Allocate a day to handle this task**.
   - [ ] Implement test suite in target language via native functions (`zlox`)
 - [X] add closures
-- [ ] add anonymous functions
-- [ ] Need to improve structure (naming, modules, and organization).
+- [X] add anonymous functions
+- [ ] add vtable structure
+- [ ] Need to improve overall structure (naming, modules, and organization).
 - [ ] Need to better actively think about memory management
 - [ ] Need to better think about runtime v. comptime
 - [ ] Figure out Zig build system.
+
+## Features
+- [ ] add multithreading syntax like `go` in `Golang`
 
 ## Grammar
 
@@ -85,7 +89,7 @@ Grammar for Expressions
 
 ```{markdown}
 expression     -> assignment ;
-assignment     -> IDENTIFIER "=" assignment 
+assignment     -> ( call "." )? IDENTIFIER "=" assignment 
                   | logic_or 
 logic_or       -> logic_and ( "or" logic_and )* ;
 logic_and      -> equality ( "and" equality )*;
@@ -95,7 +99,7 @@ term           -> factor ( ( "-" | "+" ) factor )* ;
 factor         -> unary ( ( "/" | "*" ) unary )* ;
 unary          -> ( "!" | "-" ) unary
                   | call;
-call           -> primary ( "(" arguments? ")" )* ;
+call           -> primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
 arguments      -> expression ( "," expression )* ;
 primary        -> anonymous | NUMBER | STRING | "true" | "false" | "nil"
                   | "(" expression ")" ;

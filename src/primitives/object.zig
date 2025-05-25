@@ -11,9 +11,10 @@ const Interpreter = @import("../interpreter.zig").Interpreter;
 
 const Callable = @import("callable/callable.zig").Callable;
 const Function = @import("callable/function.zig").Function;
+const Instance = @import("callable/instance.zig").Instance;
  
 // Literal should be defined similar to Object in Java, think of Object as Box-ing values
-pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function, Class};
+pub const Tag = enum{Identifier, String, Number, Nil, Bool, Function, Class, Instance};
 pub const Object = union(Tag){
     Identifier: []const u8,
     String: []const u8,
@@ -23,6 +24,7 @@ pub const Object = union(Tag){
     Bool: bool,
     @"Function": *Callable,
     Class: *Callable,
+    Instance: *Callable,
 
     pub fn checkTag(self: Object, tag: Tag) bool {
         return std.mem.eql(u8, @tagName(self), @tagName(tag));
@@ -87,11 +89,15 @@ pub const Object = union(Tag){
             .Class => |callableClass| {
                 return try callableClass.Class.toString(allocator);
             },
+            .Instance => |callableInstance| {
+                return try callableInstance.toString(allocator);
+            },
             .Function => |functionType|{
                 switch (functionType.*) {
                     .Native => return try functionType.Native.toString(allocator),
                     .Declared => return try functionType.Declared.toString(allocator),
                     .Class => return try functionType.Class.toString(allocator),
+                    .Instance => return try functionType.Class.toString(allocator),
                 } 
             },
         }

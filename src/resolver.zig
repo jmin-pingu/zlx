@@ -13,7 +13,6 @@ const StmtVisitor = s.Visitor;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
 const err = @import("error.zig");
-// const ResolutionError = err.ResolutionError;
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
 const CompileError = err.CompileError;
@@ -21,6 +20,7 @@ const CompileError = err.CompileError;
 const FunctionScopeType = union(enum) {
     None,
     Function,
+    Method,
 };
 
 const LoopScopeType = union(enum) {
@@ -143,6 +143,10 @@ pub const Resolver = struct {
     pub fn visitClassStmt(self: *Self, stmt: s.Class) T {
         try self.declare(stmt.name);
         try self.define(stmt.name);
+
+        for (stmt.methods.items) |method| {
+            self.resolveFunction(method, FunctionScopeType.Method);
+        }
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) T {
@@ -205,6 +209,15 @@ pub const Resolver = struct {
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         try self.resolveExpr(expr.callee);
         for (expr.arguments.items) |argument| try self.resolveExpr(argument);
+    }
+
+    pub fn visitGetExpr(self: *Self, expr: e.Get) T {
+        try self.resolveExpr(expr.object);
+    }
+
+    pub fn visitSetExpr(self: *Self, expr: e.Set) T {
+        try self.resolveExpr(expr.value);
+        try self.resolveExpr(expr.object);
     }
 
     pub fn visitGroupingExpr(self: *Self, expr: e.Grouping) T {

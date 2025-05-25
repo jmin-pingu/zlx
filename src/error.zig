@@ -14,7 +14,7 @@ pub const FileError = error{
     ReadError,
 };
 
-pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError || VariableError;
+pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError || FunctionError || EnvironmentError || VariableError || ClassError;
 
 pub const CompileError = error{ 
     VariableShadow, 
@@ -26,6 +26,12 @@ pub const CompileError = error{
 pub const FunctionError = error {
     TooManyArguments,
     FunctionCallError,
+} || AllocationError;
+
+pub const ClassError = error {
+    InvalidPropertyAccess,
+    InvalidFieldAccess,
+    UndefinedProperty,
 } || AllocationError;
 
 pub const ParseError = error {

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const ArrayList = std.ArrayList;
 const AutoHashMap = std.AutoHashMap;
+const StringHashMap = std.StringHashMap;
 
 const Token = @import("primitives/token.zig").Token;
 const TokenType = @import("primitives/token_type.zig").TokenType;
@@ -13,7 +14,6 @@ const s = @import("primitives/stmt.zig");
 const StmtVisitor = s.Visitor;
 
 const Callable = @import("primitives/callable/callable.zig").Callable;
-const CallableInterface = @import("primitives/callable/callable.zig").CallableInterface;
 const native = @import("primitives/callable/native.zig");
 const Function = @import("primitives/callable/function.zig").Function;
 const Class = @import("primitives/callable/class.zig").Class;
@@ -119,6 +119,15 @@ pub const Interpreter = struct {
         const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
         class_type_ref.*.Class = Class.init(stmt.name.lexeme);
         try self.environment.define(stmt.name.lexeme, Object{.Class=class_type_ref}, self.allocator);
+        
+        const methods = StringHashMap(Function).init(self.allocator);
+        for (stmt.methods) |method| {
+            const function = try Function.init(method, self.environment);
+            methods.put(stmt.name.lexeme, function);
+        }
+
+        const class = Class.init(stmt.name.lexeme, methods);
+        try self.environment.assign(stmt.name.lexeme, class, self.allocator);
         return null;
     }
 
@@ -227,6 +236,54 @@ pub const Interpreter = struct {
     }
 
     // visitorExpr logic
+    pub fn visitSetExpr(self: *Self, expr: e.Set) T {
+        const object = try self.evaluate(expr.object);
+        const value = try self.evaluate(expr.value);
+        switch (object) {
+            .Instance => |callable| {
+                // NOTE: the Instance Object is only defined with the Callable.Instance field active
+                switch (callable.*) {
+                    .Instance => |instance| {
+                        try instance.set(expr.name, value);
+                        return value;
+                    },
+                    else => unreachable 
+                }
+            },
+            else => {  
+                const error_message = std.fmt.allocPrint(
+                    self.allocator, 
+                    "{s} is not an instance of a class. Only instances have fields.", 
+                    .{expr.name.lexeme}
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.name.line, error_message, RuntimeError.InvalidFieldAccess, self.allocator);
+            }
+        }
+        return expr.value;
+    }
+
+    pub fn visitGetExpr(self: *Self, expr: e.Get) T {
+        const object = try self.evaluate(expr.object);
+        switch (object) {
+            .Instance => |callable| {
+                // NOTE: the Instance Object is only defined with the Callable.Instance field active
+                switch (callable.*) {
+                    .Instance => |instance| return instance.get(expr.name, self.allocator),
+                    else => unreachable 
+                }
+            },
+            else => {  
+                const error_message = std.fmt.allocPrint(
+                    self.allocator, 
+                    "{s} is not an instance of a class. Only instances have properties.", 
+                    .{expr.name.lexeme}
+                ) catch return err.outOfMemory();
+                return err.errorMessage(RuntimeError, expr.name.line, error_message, RuntimeError.InvalidPropertyAccess, self.allocator);
+            }
+        }
+        return expr.value;
+    }
+
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         const callee = try self.evaluate(expr.callee);
 
@@ -235,29 +292,30 @@ pub const Interpreter = struct {
             arguments.append(try self.evaluate(arg)) catch return err.outOfMemory();
         }
 
-        var funcType = switch (callee) {
-            .Function => |funcType| funcType.*,
-            .Class => |funcType| funcType.*,
+        var callable = switch (callee) {
+            .Function => |callable| callable.*,
+            .Class => |callable| callable.*,
+            .Instance => |callable| callable.*,
             else => {
-                const err_msg = std.fmt.allocPrint(
+                const error_message = std.fmt.allocPrint(
                     self.allocator, 
                     "calling undeclared function", 
                     .{}
                 ) catch return err.outOfMemory();
-                return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.UndeclaredObject, self.allocator);
+                return err.errorMessage(RuntimeError, expr.paren.line, error_message, RuntimeError.UndeclaredObject, self.allocator);
             },
         };
 
-        if (arguments.items.len != funcType.arity()) {
-            const err_msg = std.fmt.allocPrint(
+        if (arguments.items.len != callable.arity()) {
+            const error_message = std.fmt.allocPrint(
                 self.allocator, 
                 "expected {d} arguments, got {d}", 
-                .{arguments.items.len, funcType.arity()}
+                .{arguments.items.len, callable.arity()}
             ) catch return err.outOfMemory();
-            return err.errorMessage(RuntimeError, expr.paren.line, err_msg, RuntimeError.TooManyArguments, self.allocator);
+            return err.errorMessage(RuntimeError, expr.paren.line, error_message, RuntimeError.TooManyArguments, self.allocator);
         }
 
-        return try funcType.call(self, arguments, self.allocator);
+        return try callable.call(self, arguments, self.allocator);
     }
 
     pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
@@ -359,21 +417,21 @@ pub const Interpreter = struct {
             }
         } catch |runtime_err| switch (runtime_err) {
             .OperatorError => {
-                const err_msg = std.fmt.allocPrint(
+                const error_message = std.fmt.allocPrint(
                     self.allocator, 
                     "operator {s} is not a binary operator", 
                     .{expr.operator.lexeme}
                 ) catch return err.outOfMemory();
-                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
+                return err.errorMessage(RuntimeError, expr.operator.line, error_message, runtime_err, self.allocator);
             },
             .OperandError => {
-                const err_msg = std.fmt.allocPrint(
+                const error_message = std.fmt.allocPrint(
                     self.allocator, 
                     "operands {any} and {any} are not compatible with the operator {s}", 
                     // TODO: double-check impl
                     .{left, right, expr.operator.lexeme}
                 ) catch return err.outOfMemory();
-                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
+                return err.errorMessage(RuntimeError, expr.operator.line, error_message, runtime_err, self.allocator);
             }, 
             else => return runtime_err
         };
@@ -403,20 +461,20 @@ pub const Interpreter = struct {
             }
         } catch |runtime_err| switch (runtime_err) {
             .OperatorError => {
-                const err_msg = std.fmt.allocPrint(
+                const error_message = std.fmt.allocPrint(
                     self.allocator, 
                     "operator {s} is not a unary operator", 
                     .{expr.operator.lexeme}
                 ) catch return err.outOfMemory();
-                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
+                return err.errorMessage(RuntimeError, expr.operator.line, error_message, runtime_err, self.allocator);
             },
             .OperandError => {
-                const err_msg = std.fmt.allocPrint(
+                const error_message = std.fmt.allocPrint(
                     self.allocator, 
                     "operand {any} is not compatible with operator {s}", 
                     .{right, expr.operator.lexeme}
                 ) catch return err.outOfMemory();
-                return err.errorMessage(RuntimeError, expr.operator.line, err_msg, runtime_err, self.allocator);
+                return err.errorMessage(RuntimeError, expr.operator.line, error_message, runtime_err, self.allocator);
             }, 
             else => return runtime_err
         };

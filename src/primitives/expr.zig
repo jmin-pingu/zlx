@@ -11,6 +11,8 @@ pub const Expr= union(enum) {
     binary: Binary, 
     grouping: Grouping, 
     call: Call, 
+    get: Get,
+    set: Set,
     literal: Literal, 
     unary: Unary,
     @"var": Var,
@@ -30,6 +32,48 @@ pub const Expr= union(enum) {
         }
     }
 };
+
+pub const Get = struct {
+    object: *Expr,
+    name: Token,
+        
+    pub fn new(name: Token, object: *Expr, allocator: std.mem.Allocator) err.AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
+        expr.* = Expr{ 
+            .get=Get{ 
+                .name=name, .object=object 
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: Get, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
+        return visitor.visitGetExpr(self);
+    }
+};
+
+pub const Set = struct {
+    object: *Expr,
+    name: Token,
+    value: *Expr,
+        
+    pub fn new(name: Token, object: *Expr, value: *Expr, allocator: std.mem.Allocator) err.AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
+        expr.* = Expr{ 
+            .set=Set{ 
+                .name=name, .object=object, .value = value
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: Set, T: type, visitor: Visitor(T), addr: usize) T { 
+        _ = addr;
+        return visitor.visitSetExpr(self);
+    }
+};
+
 
 
 pub const Anonymous = struct {
@@ -228,7 +272,7 @@ pub fn Visitor(comptime T: type) type {
         const Self = @This();
 
         ptr: *anyopaque,
-        // NOTE: these a morbid pointers, use vtable
+        // NOTE: these are morbid pointers, use vtable
         visitBinaryExprFn: *const fn (*anyopaque, expr: Binary) T,
         visitGroupingExprFn: *const fn (*anyopaque, expr: Grouping) T,
         visitLiteralExprFn: *const fn (*anyopaque, expr: Literal) T,
@@ -238,6 +282,8 @@ pub fn Visitor(comptime T: type) type {
         visitLogicalExprFn: *const fn (*anyopaque, expr: Logical) T,
         visitCallExprFn: *const fn (*anyopaque, expr: Call) T,
         visitAnonymousExprFn: *const fn (*anyopaque, expr: Anonymous) T,
+        visitGetExprFn: *const fn (*anyopaque, expr: Get) T,
+        visitSetExprFn: *const fn (*anyopaque, expr: Set) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -292,6 +338,16 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.pointer.child.visitAnonymousExpr, .{self, expr});
                 }
+
+                pub fn visitGetExprImpl(pointer: *anyopaque, expr: Get) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.pointer.child.visitGetExpr, .{self, expr});
+                }
+
+                pub fn visitSetExprImpl(pointer: *anyopaque, expr: Set) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.pointer.child.visitSetExpr, .{self, expr});
+                }
             };
         
             return .{
@@ -305,6 +361,8 @@ pub fn Visitor(comptime T: type) type {
                 .visitLogicalExprFn = gen.visitLogicalExprImpl,
                 .visitCallExprFn = gen.visitCallExprImpl,
                 .visitAnonymousExprFn = gen.visitAnonymousExprImpl,
+                .visitGetExprFn = gen.visitGetExprImpl,
+                .visitSetExprFn = gen.visitSetExprImpl,
             };
         }
 
@@ -342,6 +400,14 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitAnonymousExpr(self: Self, expr: Anonymous) T {
             return self.visitAnonymousExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitGetExpr(self: Self, expr: Get) T {
+            return self.visitGetExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitSetExpr(self: Self, expr: Set) T {
+            return self.visitSetExprFn(self.ptr, expr);
         }
     };
 }
