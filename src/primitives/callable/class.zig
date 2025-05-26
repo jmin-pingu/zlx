@@ -12,10 +12,10 @@ const err = @import("../../error.zig");
 pub const Class = struct {
     const Self = @This();
     name: []const u8,
-    methods: StringHashMap(Function),
+    methods: StringHashMap(Object),
     // NOTE: is there a way to make this implement Callable?
     // Callable{ .Native = panic.initCallable()};
-    pub fn init(name: []const u8, methods: StringHashMap(Function)) Class {
+    pub fn init(name: []const u8, methods: StringHashMap(Object)) Class {
         return Class{
             .name=name,
             .methods=methods,
@@ -25,9 +25,11 @@ pub const Class = struct {
     pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) err.FunctionError!Object {
         _ = interpreter;
         _ = arguments;
+        const class_ref = allocator.create(Class) catch return err.outOfMemory();
+        class_ref.* = self;
         // Creates an instance
         const instance_ref = allocator.create(Callable) catch return err.outOfMemory();
-        instance_ref.* = Callable{ .Instance = try Instance.init(self, allocator) };
+        instance_ref.* = Callable{ .Instance = try Instance.init(class_ref, allocator) };
         return Object{ .Instance = instance_ref };
     }
 
@@ -42,6 +44,10 @@ pub const Class = struct {
             "<class {s}>",
             .{self.name}
         ) catch return err.outOfMemory();
+    }
+
+    pub fn findMethod(self: Self, name: []const u8) err.AllocationError!?Object {
+        return self.methods.get(name);
     }
 };
 

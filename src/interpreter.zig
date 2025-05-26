@@ -116,18 +116,22 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitClassStmt(self: *Self, stmt: s.Class) stmt_T {
-        const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        class_type_ref.*.Class = Class.init(stmt.name.lexeme);
-        try self.environment.define(stmt.name.lexeme, Object{.Class=class_type_ref}, self.allocator);
-        
-        const methods = StringHashMap(Function).init(self.allocator);
-        for (stmt.methods) |method| {
-            const function = try Function.init(method, self.environment);
-            methods.put(stmt.name.lexeme, function);
-        }
+        try self.environment.define(stmt.name.lexeme, null, self.allocator);
 
-        const class = Class.init(stmt.name.lexeme, methods);
-        try self.environment.assign(stmt.name.lexeme, class, self.allocator);
+        var methods = StringHashMap(Object).init(self.allocator);
+        for (stmt.methods.items) |maybe_method| {
+            switch (maybe_method.*) {
+                .function => |method| {
+                    const callable_ref = try self.allocator.create(Callable);
+                    callable_ref.* = Callable { .Declared = try Function.init(method, self.environment)};
+                    try methods.put( method.name.lexeme, Object{ .@"Function" = callable_ref });
+                },
+                else => unreachable
+            }
+        }
+        const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
+        class_type_ref.*.Class = Class.init(stmt.name.lexeme, methods);
+        try self.environment.assign(stmt.name, Object{ .Class = class_type_ref }, self.allocator);
         return null;
     }
 

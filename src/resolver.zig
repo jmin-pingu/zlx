@@ -145,7 +145,7 @@ pub const Resolver = struct {
         try self.define(stmt.name);
 
         for (stmt.methods.items) |method| {
-            self.resolveFunction(method, FunctionScopeType.Method);
+            try self.resolveFunction(method.function, FunctionScopeType.Method);
         }
     }
 

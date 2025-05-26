@@ -11,10 +11,10 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 
 pub const Instance = struct {
-    class: Class,
+    class: *Class,
     fields: StringHashMap(Object),
  
-    pub fn init(class: Class, allocator: std.mem.Allocator) err.AllocationError!*Instance {
+    pub fn init(class: *Class, allocator: std.mem.Allocator) err.AllocationError!*Instance {
         const instance_ref = try allocator.create(Instance);
         instance_ref.* = Instance { 
             .class = class,
@@ -42,16 +42,18 @@ pub const Instance = struct {
     }
 
     pub fn get(self: Self, name: Token, allocator: std.mem.Allocator) err.RuntimeError!Object {
-        return if (self.fields.get(name.lexeme)) |value| {
+        if (self.fields.get(name.lexeme)) |value| {
             return value;
+        } else if (try self.class.findMethod(name.lexeme)) |method| {
+            return method;
         } else {
             const error_message = std.fmt.allocPrint(
-                allocator, 
-                "Undefined property '{s}'.", 
+                allocator,
+                "Undefined property '{s}'.",
                 .{name.lexeme}
             ) catch return err.outOfMemory();
-            return err.errorMessage(err.RuntimeError, name.line, error_message, err.RuntimeError.UndefinedProperty, allocator);
-        };
+        return err.errorMessage(err.RuntimeError, name.line, error_message, err.RuntimeError.UndefinedProperty, allocator);
+        }
     }
 
     pub fn set(self: *Self, name: Token, value: Object) err.RuntimeError!void {
