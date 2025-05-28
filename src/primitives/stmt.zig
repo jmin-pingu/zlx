@@ -33,17 +33,19 @@ pub const Stmt= union(enum) {
 
 pub const Class = struct { 
     name: Token,
+    superclass: ?*Expr,
     methods: ArrayList(*Stmt),
 
     pub fn accept(self: Class, T: type, visitor: Visitor(T)) T {
         return visitor.visitClassStmt(self);
     }
 
-    pub fn new(name: Token, methods: ArrayList(*Stmt), allocator: std.mem.Allocator) err.AllocationError!*Stmt {
+    pub fn new(name: Token, superclass: ?*Expr, methods: ArrayList(*Stmt), allocator: std.mem.Allocator) err.AllocationError!*Stmt {
         const stmt_ref = allocator.create(Stmt) catch return err.outOfMemory();
         stmt_ref.* = Stmt { 
             .class= Class {
                 .name = name, 
+                .superclass = superclass, 
                 .methods = methods
             } 
         };

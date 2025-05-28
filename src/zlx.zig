@@ -79,7 +79,7 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     // static analysis and actual interpretation
     // TODO: this about how I want to handle errors
     for (statements.items) |statement| {
-        resolver.resolveStatement(statement) catch unreachable;
+        resolver.resolveStatement(statement) catch std.process.exit(1);
     }
     _ = try interpreter.interpret(&statements);
 }

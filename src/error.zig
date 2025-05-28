@@ -19,6 +19,7 @@ pub const RuntimeError = error{ OperatorError, OperandError } || AllocationError
 pub const CompileError = error{ 
     VariableShadow, 
     RepeatVariableDeclaration,
+    RecursiveInheritanceError,
     IncorrectReturnScope,
     IncorrectBreakScope,
     IncorrectThisScope,
@@ -38,7 +39,7 @@ pub const ClassError = error {
 
 pub const ParseError = error {
     EndOfFile,
-    SyntaxError
+    SyntaxError,
 } || AllocationError || FunctionError || VariableError;
 
 pub const ScannerError = error {

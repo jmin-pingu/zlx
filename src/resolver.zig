@@ -154,6 +154,13 @@ pub const Resolver = struct {
 
         try self.declare(stmt.name);
         try self.define(stmt.name);
+        
+        if (stmt.superclass) |superclass| {
+            if (std.mem.eql(u8, stmt.name.lexeme, superclass.@"var".name.lexeme)) return err.errorMessage(CompileError, stmt.name.line, "A class cannot inherit from itself.", CompileError.RecursiveInheritanceError, self.allocator);
+
+            try self.resolveExpr(superclass);
+        }
+
         try self.beginScope();
 
         try self.scopes.getLast().put("this", true);

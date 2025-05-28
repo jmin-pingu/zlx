@@ -61,6 +61,11 @@ pub const Parser = struct {
 
     fn classDeclaration(self: *Parser) ParseError!*Stmt {
         const name = try self.consume(TokenType.IDENTIFIER, "Expect class name.");
+        var superclass: ?*expr.Expr = null;
+        if (self.match(1, [1]TokenType{TokenType.LESS})) {
+            _ = try self.consume(TokenType.IDENTIFIER, "Expect superclass name.");
+            superclass = expr.Var.new(self.previous(), self.allocator) catch return ParseError.SyntaxError;
+        }         
         _ = try self.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
 
         var methods = ArrayList(*s.Stmt).init(self.allocator);
@@ -69,8 +74,8 @@ pub const Parser = struct {
         }
 
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
-
-        return s.Class.new(name, methods, self.allocator);
+ 
+        return s.Class.new(name, superclass, methods, self.allocator);
     }
 
     fn function(self: *Parser, kind: []const u8) ParseError!*Stmt {
