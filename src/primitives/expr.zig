@@ -13,6 +13,7 @@ pub const Expr= union(enum) {
     call: Call, 
     get: Get,
     set: Set,
+    this: This,
     literal: Literal, 
     unary: Unary,
     @"var": Var,
@@ -32,6 +33,25 @@ pub const Expr= union(enum) {
         }
     }
 };
+
+pub const This = struct {
+    keyword: Token,
+        
+    pub fn new(keyword: Token, allocator: std.mem.Allocator) err.AllocationError!*Expr {
+        const expr = allocator.create(Expr) catch return err.outOfMemory();
+        expr.* = Expr{ 
+            .this=This{ 
+                .keyword=keyword
+            }
+        };
+        return expr;
+    }
+
+    pub fn accept(self: This, T: type, visitor: Visitor(T), addr: usize) T { 
+        return visitor.visitThisExpr(self, addr);
+    }
+};
+
 
 pub const Get = struct {
     object: *Expr,
@@ -284,6 +304,7 @@ pub fn Visitor(comptime T: type) type {
         visitAnonymousExprFn: *const fn (*anyopaque, expr: Anonymous) T,
         visitGetExprFn: *const fn (*anyopaque, expr: Get) T,
         visitSetExprFn: *const fn (*anyopaque, expr: Set) T,
+        visitThisExprFn: *const fn (*anyopaque, expr: This, addr: usize) T,
 
         pub fn init(ptr: anytype) Self {
             const Ptr = @TypeOf(ptr);
@@ -348,6 +369,11 @@ pub fn Visitor(comptime T: type) type {
                     const self: Ptr = @ptrCast(@alignCast(pointer));
                     return @call(.auto, ptr_info.pointer.child.visitSetExpr, .{self, expr});
                 }
+
+                pub fn visitThisExprImpl(pointer: *anyopaque, expr: This, addr: usize) T {
+                    const self: Ptr = @ptrCast(@alignCast(pointer));
+                    return @call(.auto, ptr_info.pointer.child.visitThisExpr, .{self, expr, addr});
+                }
             };
         
             return .{
@@ -363,6 +389,7 @@ pub fn Visitor(comptime T: type) type {
                 .visitAnonymousExprFn = gen.visitAnonymousExprImpl,
                 .visitGetExprFn = gen.visitGetExprImpl,
                 .visitSetExprFn = gen.visitSetExprImpl,
+                .visitThisExprFn = gen.visitThisExprImpl,
             };
         }
 
@@ -408,6 +435,10 @@ pub fn Visitor(comptime T: type) type {
 
         pub inline fn visitSetExpr(self: Self, expr: Set) T {
             return self.visitSetExprFn(self.ptr, expr);
+        }
+
+        pub inline fn visitThisExpr(self: Self, expr: This, addr: usize) T {
+            return self.visitThisExprFn(self.ptr, expr, addr);
         }
     };
 }

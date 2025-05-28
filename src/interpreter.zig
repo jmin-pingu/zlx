@@ -137,7 +137,7 @@ pub const Interpreter = struct {
 
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
         const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        fntype_ref.*.Declared = try Function.init(stmt, self.environment);
+        fntype_ref.* = Callable { .Declared = try Function.init(stmt, self.environment) };
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
         return null;
     }
@@ -264,6 +264,10 @@ pub const Interpreter = struct {
             }
         }
         return expr.value;
+    }
+
+    pub fn visitThisExpr(self: *Self, expr: e.This, addr: usize) T {
+        return self.lookUpVar(expr.keyword, addr);
     }
 
     pub fn visitGetExpr(self: *Self, expr: e.Get) T {

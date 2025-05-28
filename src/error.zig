@@ -21,6 +21,7 @@ pub const CompileError = error{
     RepeatVariableDeclaration,
     IncorrectReturnScope,
     IncorrectBreakScope,
+    IncorrectThisScope,
 } || AllocationError;
 
 pub const FunctionError = error {

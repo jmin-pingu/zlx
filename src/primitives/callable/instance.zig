@@ -45,7 +45,9 @@ pub const Instance = struct {
         if (self.fields.get(name.lexeme)) |value| {
             return value;
         } else if (try self.class.findMethod(name.lexeme)) |method| {
-            return method;
+            const instance_ref = try allocator.create(Instance);
+            instance_ref.* = self;
+            return try method.bind(instance_ref, allocator);
         } else {
             const error_message = std.fmt.allocPrint(
                 allocator,

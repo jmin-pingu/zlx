@@ -28,6 +28,11 @@ const LoopScopeType = union(enum) {
     Loop,
 };
 
+const ClassScopeType = union(enum) {
+    None,
+    Class,
+};
+
 pub const Resolver = struct {
     const Self = @This();
     const T: type = CompileError!void;
@@ -37,6 +42,7 @@ pub const Resolver = struct {
     allocator: std.mem.Allocator,
     currentFunction: FunctionScopeType = FunctionScopeType.None,
     currentLoop: LoopScopeType = LoopScopeType.None,
+    currentClass: ClassScopeType = ClassScopeType.None,
 
     pub fn init(interpreter: *Interpreter, allocator: std.mem.Allocator) Resolver {
         return Resolver{ 
@@ -141,12 +147,20 @@ pub const Resolver = struct {
     }
 
     pub fn visitClassStmt(self: *Self, stmt: s.Class) T {
+        const enclosing_class = self.currentClass;
+        defer self.currentClass = enclosing_class;
+        self.currentClass = ClassScopeType.Class;
+
         try self.declare(stmt.name);
         try self.define(stmt.name);
+        try self.beginScope();
+
+        try self.scopes.getLast().put("this", true);
 
         for (stmt.methods.items) |method| {
             try self.resolveFunction(method.function, FunctionScopeType.Method);
         }
+        self.endScope();
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) T {
@@ -174,12 +188,11 @@ pub const Resolver = struct {
 
     // Implement Expressions
     pub fn visitVarExpr(self: *Self, expr: e.Var, addr: usize) T {
-        // TODO: variable USAGE
         const scopes_size = self.scopes.items.len;
         if (scopes_size > 0) {
             const varResolved = self.scopes.getLast().get(expr.name.lexeme);
             if (varResolved != null and varResolved.? == false) return err.errorMessage(CompileError, expr.name.line, "Can't read local variable in its own initializer.", CompileError.VariableShadow, self.allocator);
-        }
+        }         
         try self.resolveLocal(addr, expr.name);
     }
 
@@ -209,6 +222,13 @@ pub const Resolver = struct {
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         try self.resolveExpr(expr.callee);
         for (expr.arguments.items) |argument| try self.resolveExpr(argument);
+    }
+
+    pub fn visitThisExpr(self: *Self, expr: e.This, addr: usize) T {
+        if (self.currentClass == ClassScopeType.None) {
+            return err.errorMessage(CompileError, expr.keyword.line, "Can't use `this` outside of a class", CompileError.IncorrectThisScope, self.allocator);
+        }
+        try self.resolveLocal(addr, expr.keyword);
     }
 
     pub fn visitGetExpr(self: *Self, expr: e.Get) T {

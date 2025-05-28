@@ -8,6 +8,7 @@ const err = @import("../error.zig");
 const AllocationError = err.AllocationError;
 const FunctionError = err.FunctionError;
 const Interpreter = @import("../interpreter.zig").Interpreter;
+const Environment = @import("../environment.zig").Environment;
 
 const Callable = @import("callable/callable.zig").Callable;
 const Function = @import("callable/function.zig").Function;
@@ -100,6 +101,29 @@ pub const Object = union(Tag){
                     .Instance => return try functionType.Class.toString(allocator),
                 } 
             },
+        }
+    }
+
+    pub fn bind(self: Object, instance: *Instance, allocator: std.mem.Allocator) err.RuntimeError!Object {
+        switch (self) {
+            .Function => |callable| {
+                switch (callable.*) {
+                    .Declared => |function| {
+                        const environment_ref = try allocator.create(Environment);
+                        var environment = Environment.init(allocator, function.closure);
+                        const instance_ref = try allocator.create(Callable);
+                        instance_ref.* = Callable { .Instance = instance };
+                        try environment.define("this", Object{ .Instance = instance_ref }, allocator);
+                        environment_ref.* = environment;
+
+                        const function_ref = try allocator.create(Callable);
+                        function_ref.* = Callable { .Declared = try Function.init(function.declared, environment_ref) };
+                        return Object { .Function = function_ref };
+                    },
+                    else => unreachable
+                }
+            },
+            else => unreachable
         }
     }
 };

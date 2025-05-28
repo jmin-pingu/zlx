@@ -77,6 +77,7 @@ fn run(source: []const u8, interpreter: *Interpreter, allocator: std.mem.Allocat
     // Functionality of resoler contingent on heap allocations in the parser for all "structures"
     // like Stmt and Expr since we need their addresses to remain consistent between
     // static analysis and actual interpretation
+    // TODO: this about how I want to handle errors
     for (statements.items) |statement| {
         resolver.resolveStatement(statement) catch unreachable;
     }
