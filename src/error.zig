@@ -22,6 +22,7 @@ pub const CompileError = error{
     IncorrectReturnScope,
     IncorrectBreakScope,
     IncorrectThisScope,
+    IncorrectInitScope,
 } || AllocationError;
 
 pub const FunctionError = error {

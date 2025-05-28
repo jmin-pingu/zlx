@@ -123,7 +123,7 @@ pub const Interpreter = struct {
             switch (maybe_method.*) {
                 .function => |method| {
                     const callable_ref = try self.allocator.create(Callable);
-                    callable_ref.* = Callable { .Declared = try Function.init(method, self.environment)};
+                    callable_ref.* = Callable { .Declared = try Function.init(method, self.environment, std.mem.eql(u8, method.name.lexeme, "init"))};
                     try methods.put( method.name.lexeme, Object{ .@"Function" = callable_ref });
                 },
                 else => unreachable
@@ -137,7 +137,7 @@ pub const Interpreter = struct {
 
     pub fn visitFunctionStmt(self: *Self, stmt: s.Function) stmt_T {
         const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        fntype_ref.* = Callable { .Declared = try Function.init(stmt, self.environment) };
+        fntype_ref.* = Callable { .Declared = try Function.init(stmt, self.environment, false) };
         try self.environment.define(stmt.name.lexeme, Object{.Function=fntype_ref}, self.allocator);
         return null;
     }
@@ -328,7 +328,7 @@ pub const Interpreter = struct {
 
     pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
         const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        fntype_ref.* = Callable { .Declared = try Function.init(expr.function, self.environment) };
+        fntype_ref.* = Callable { .Declared = try Function.init(expr.function, self.environment, false) };
         return Object{.Function=fntype_ref};
     }
 

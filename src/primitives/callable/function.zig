@@ -13,11 +13,13 @@ pub const Function = struct {
     const Self = @This();
     declared: stmt.Function, 
     closure: *Environment,
+    isInitializer: bool, 
 
-    pub fn init(declared: stmt.Function, closure: *Environment) err.AllocationError!Function {
+    pub fn init(declared: stmt.Function, closure: *Environment, is_initializer: bool) err.AllocationError!Function {
         return Function{
             .declared = declared,
-            .closure = closure
+            .closure = closure,
+            .isInitializer = is_initializer
         };
     }
     
@@ -29,9 +31,11 @@ pub const Function = struct {
             try environment.define(self.declared.params.items[i].literal.Identifier, arguments.items[i], allocator); // should return a variable error
         }
 
-        const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch {
-            return err.FunctionError.FunctionCallError;
-        };
+        const stmtValue = interpreter.executeBlock(self.declared.body, environment) catch return err.FunctionError.FunctionCallError;
+
+        if (self.isInitializer) {
+            return self.closure.getAt(0, "this", allocator) catch err.FunctionError.FunctionCallError;
+        }
 
         if (stmtValue != null) {
             return stmtValue.?;

@@ -117,7 +117,7 @@ pub const Object = union(Tag){
                         environment_ref.* = environment;
 
                         const function_ref = try allocator.create(Callable);
-                        function_ref.* = Callable { .Declared = try Function.init(function.declared, environment_ref) };
+                        function_ref.* = Callable { .Declared = try Function.init(function.declared, environment_ref, function.isInitializer) };
                         return Object { .Function = function_ref };
                     },
                     else => unreachable

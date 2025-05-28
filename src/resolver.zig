@@ -21,6 +21,7 @@ const FunctionScopeType = union(enum) {
     None,
     Function,
     Method,
+    Initializer,
 };
 
 const LoopScopeType = union(enum) {
@@ -158,7 +159,11 @@ pub const Resolver = struct {
         try self.scopes.getLast().put("this", true);
 
         for (stmt.methods.items) |method| {
-            try self.resolveFunction(method.function, FunctionScopeType.Method);
+            if (std.mem.eql(u8, stmt.name.lexeme, "init")) {
+                try self.resolveFunction(method.function, FunctionScopeType.Initializer);
+            } else {
+                try self.resolveFunction(method.function, FunctionScopeType.Method);
+            }
         }
         self.endScope();
     }
@@ -169,7 +174,10 @@ pub const Resolver = struct {
 
     pub fn visitReturnStmt(self: *Self, stmt: s.Return) T {
         if (self.currentFunction == FunctionScopeType.None) return err.errorMessage(CompileError, stmt.keyword.line, "Return not nested in function", CompileError.IncorrectReturnScope, self.allocator);
+
         if (stmt.value != null) {
+
+            if (self.currentFunction == FunctionScopeType.Initializer) return err.errorMessage(CompileError, stmt.keyword.line, "Can't return a value from an initializer", CompileError.IncorrectInitScope, self.allocator);
             try self.resolveExpr(stmt.value.?);
         }
     }
