@@ -328,7 +328,7 @@ pub const Interpreter = struct {
 
     pub fn visitAnonymousExpr(self: *Self, expr: e.Anonymous) T {
         const fntype_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        fntype_ref.*.Declared = try Function.init(expr.function, self.environment);
+        fntype_ref.* = Callable { .Declared = try Function.init(expr.function, self.environment) };
         return Object{.Function=fntype_ref};
     }
 

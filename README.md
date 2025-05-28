@@ -18,6 +18,11 @@
 - [ ] Need to better think about runtime v. comptime
 - [ ] Figure out Zig build system.
 
+**Double-Check5Understanding**
+- [ ] Understand static analysis better.
+- [ ] Review resolver and `this` code
+- [ ] Review closures + functions
+
 ## Features
 - [ ] add multithreading syntax like `go` in `Golang`
 

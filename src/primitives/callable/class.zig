@@ -23,18 +23,26 @@ pub const Class = struct {
     }
     
     pub fn call(self: Self, interpreter: *Interpreter, arguments: ArrayList(Object), allocator: std.mem.Allocator) err.FunctionError!Object {
-        _ = interpreter;
-        _ = arguments;
+        // NOTE: need to reevaluate the Boxing strategy
+        // Creates an instance
         const class_ref = allocator.create(Class) catch return err.outOfMemory();
         class_ref.* = self;
-        // Creates an instance
         const instance_ref = allocator.create(Callable) catch return err.outOfMemory();
-        instance_ref.* = Callable{ .Instance = try Instance.init(class_ref, allocator) };
+        const instance = try Instance.init(class_ref, allocator);
+        instance_ref.* = Callable{ .Instance = instance };
+        
+        if (self.findMethod("init")) |initializer | {
+            const bound_instance =  initializer.bind(instance, allocator) catch return err.FunctionError.FunctionCallError;
+            _ = try bound_instance.Function.call(interpreter, arguments, allocator);
+        }
+
         return Object{ .Instance = instance_ref };
     }
 
     pub fn arity(self: Self) usize {
-        _ = self;
+        if (self.findMethod("init")) |initializer| {
+            return initializer.Function.arity();
+        }
         return 0;
     }
 
@@ -46,7 +54,7 @@ pub const Class = struct {
         ) catch return err.outOfMemory();
     }
 
-    pub fn findMethod(self: Self, name: []const u8) err.AllocationError!?Object {
+    pub fn findMethod(self: Self, name: []const u8) ?Object {
         return self.methods.get(name);
     }
 };

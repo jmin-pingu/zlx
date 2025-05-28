@@ -44,7 +44,7 @@ pub const Instance = struct {
     pub fn get(self: Self, name: Token, allocator: std.mem.Allocator) err.RuntimeError!Object {
         if (self.fields.get(name.lexeme)) |value| {
             return value;
-        } else if (try self.class.findMethod(name.lexeme)) |method| {
+        } else if (self.class.findMethod(name.lexeme)) |method| {
             const instance_ref = try allocator.create(Instance);
             instance_ref.* = self;
             return try method.bind(instance_ref, allocator);
