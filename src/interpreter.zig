@@ -116,8 +116,19 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitClassStmt(self: *Self, stmt: s.Class) stmt_T {
-        try self.environment.define(stmt.name.lexeme, null, self.allocator);
+        var superclass: Object = undefined;
+        if (stmt.superclass) |parsed_superclass| {
+            superclass = try self.evaluate(parsed_superclass);
+            switch (superclass) {
+                .Class => {
+                },
+                else => {
+                    return err.errorMessage(RuntimeError, stmt.name.line, "The superclass must be a class", RuntimeError.InvalidFieldAccess, self.allocator);
+                },
+            }
+        }
 
+        try self.environment.define(stmt.name.lexeme, null, self.allocator);
         var methods = StringHashMap(Object).init(self.allocator);
         for (stmt.methods.items) |maybe_method| {
             switch (maybe_method.*) {
@@ -130,7 +141,7 @@ pub const Interpreter = struct {
             }
         }
         const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
-        class_type_ref.*.Class = Class.init(stmt.name.lexeme, methods);
+        class_type_ref.*.Class = Class.init(stmt.name.lexeme, superclass, methods);
         try self.environment.assign(stmt.name, Object{ .Class = class_type_ref }, self.allocator);
         return null;
     }

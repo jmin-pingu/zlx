@@ -53,7 +53,6 @@ pub const Parser = struct {
             if (self.match(1, [1]TokenType{TokenType.VAR})) return try self.varDeclaration();
             return try self.statement();
         } catch {
-            // TODO: double check
             self.synchronize();
             return ParseError.SyntaxError;
         };
@@ -432,8 +431,7 @@ pub const Parser = struct {
             _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression");
             return try expr.Grouping.new(e, self.allocator);
         }
-        // TODO: think of a better error name for the future
-        return ParseError.SyntaxError;
+        return err.errorMessage(ParseError, self.peek().line, "Expecting an expression before `;`", ParseError.SyntaxError, self.allocator);
     }
 
     fn synchronize(self: *Parser) void {
@@ -454,7 +452,6 @@ pub const Parser = struct {
         const error_token = self.peek();
         if (error_token.ttype == TokenType.EOF) {
             std.debug.print("[line: {d}, near end] {s}\n",.{error_token.line, error_msg});
-            // err_lib.errorMessage();
             return ParseError.EndOfFile;
         } 
         std.debug.print("[line: {d}, near '{s}'] {s}\n",.{error_token.line, error_token.lexeme, error_msg});

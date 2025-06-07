@@ -12,12 +12,14 @@ const err = @import("../../error.zig");
 pub const Class = struct {
     const Self = @This();
     name: []const u8,
+    superclass: ?Object,
     methods: StringHashMap(Object),
     // NOTE: is there a way to make this implement Callable?
     // Callable{ .Native = panic.initCallable()};
-    pub fn init(name: []const u8, methods: StringHashMap(Object)) Class {
+    pub fn init(name: []const u8, superclass: ?Object, methods: StringHashMap(Object)) Class {
         return Class{
             .name=name,
+            .superclass=superclass,
             .methods=methods,
         };
     }
@@ -31,7 +33,7 @@ pub const Class = struct {
         const instance = try Instance.init(class_ref, allocator);
         instance_ref.* = Callable{ .Instance = instance };
         
-        if (self.findMethod("init")) |initializer | {
+        if (self.findMethod("init")) |initializer| {
             const bound_instance =  initializer.bind(instance, allocator) catch return err.FunctionError.FunctionCallError;
             _ = try bound_instance.Function.call(interpreter, arguments, allocator);
         }
@@ -55,7 +57,23 @@ pub const Class = struct {
     }
 
     pub fn findMethod(self: Self, name: []const u8) ?Object {
-        return self.methods.get(name);
+        if (self.methods.get(name)) |method| {
+            return method;
+        }
+
+        if (self.superclass) |superclass| {
+            switch (superclass) {
+                .Class => |callable| { 
+                    switch (callable.*) {
+                        .Class => |class| { return class.findMethod(name);},
+                        else => { return null; },
+                    }
+                },
+                else => {return null;}
+            }
+        }
+
+        return null;
     }
 };
 

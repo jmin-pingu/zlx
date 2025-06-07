@@ -157,7 +157,7 @@ pub const Resolver = struct {
         
         if (stmt.superclass) |superclass| {
             if (std.mem.eql(u8, stmt.name.lexeme, superclass.@"var".name.lexeme)) return err.errorMessage(CompileError, stmt.name.line, "A class cannot inherit from itself.", CompileError.RecursiveInheritanceError, self.allocator);
-
+ 
             try self.resolveExpr(superclass);
         }
 
