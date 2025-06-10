@@ -421,6 +421,12 @@ pub const Parser = struct {
         if (self.match(1, [1]TokenType{TokenType.NIL})) return try expr.Literal.new(Object{.Nil=null}, self.allocator);
         // NOTE: want Literal and Identifiers to persist outside scope, so we need to heap allocate and copy to allocated memory
         if (self.match(2, [2]TokenType{TokenType.NUMBER, TokenType.STRING})) return try expr.Literal.new(self.previous().literal, self.allocator);
+        if (self.match(1, [1]TokenType{TokenType.SUPER})) {
+            const keyword = self.previous();
+            _ = try self.consume(TokenType.DOT, "Expect '.' after 'super'");
+            const method = try self.consume(TokenType.IDENTIFIER, "Expect superclass method name");
+            return try expr.Super.new(keyword, method, self.allocator);
+        }
         if (self.match(1, [1]TokenType{TokenType.THIS})) return try expr.This.new(self.previous(), self.allocator);
         if (self.match(1, [1]TokenType{TokenType.IDENTIFIER})) return try expr.Var.new(self.previous(), self.allocator);
         // TODO: does it make sense to make anonymous a primary

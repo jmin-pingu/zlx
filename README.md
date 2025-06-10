@@ -12,11 +12,13 @@
   - [ ] Implement test suite in target language via native functions (`zlox`)
 - [X] add closures
 - [X] add anonymous functions
-- [ ] add vtable structure
+- [ ] add vtable structure for interfaces
 - [ ] Need to improve overall structure (naming, modules, and organization).
 - [ ] Need to better actively think about memory management
 - [ ] Need to better think about runtime v. comptime
 - [ ] Figure out Zig build system.
+- [ ] For error handling, use unreachable for all code that is truly impossible to fail in normal
+  workflow. I'd imagine there is a lot of code that could be cleaned up in `/src/interpreter.zig`
 
 **Double-Check5Understanding**
 - [ ] Understand static analysis better.
@@ -108,7 +110,7 @@ unary          -> ( "!" | "-" ) unary
 call           -> primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
 arguments      -> expression ( "," expression )* ;
 primary        -> anonymous | NUMBER | STRING | "true" | "false" | "nil"
-                  | "(" expression ")" ;
+                  | "(" expression ")" | "super" "." IDENTIFIER ;
 
 anonymousExpr  -> "fun" anon ;
 anonymous      -> "(" parameters? ")" block ;

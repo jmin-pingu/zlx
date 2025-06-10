@@ -17,6 +17,7 @@ const Callable = @import("primitives/callable/callable.zig").Callable;
 const native = @import("primitives/callable/native.zig");
 const Function = @import("primitives/callable/function.zig").Function;
 const Class = @import("primitives/callable/class.zig").Class;
+const Instance = @import("primitives/callable/instance.zig").Instance;
 
 const Environment = @import("environment.zig").Environment;
 
@@ -116,10 +117,11 @@ pub const Interpreter = struct {
 
     // visitorStmt logic
     pub fn visitClassStmt(self: *Self, stmt: s.Class) stmt_T {
-        var superclass: Object = undefined;
+        var superclass: ?Object = null;
+        // NOTE: I feel like there is a better way to write this
         if (stmt.superclass) |parsed_superclass| {
             superclass = try self.evaluate(parsed_superclass);
-            switch (superclass) {
+            switch (superclass.?) {
                 .Class => {
                 },
                 else => {
@@ -129,6 +131,14 @@ pub const Interpreter = struct {
         }
 
         try self.environment.define(stmt.name.lexeme, null, self.allocator);
+
+        if (stmt.superclass) |_| {
+            const environment_ref = try self.allocator.create(Environment);
+            environment_ref.* = Environment.init(self.allocator, self.environment);
+            self.environment = environment_ref;
+            try self.environment.define("super", superclass, self.allocator);
+        }
+
         var methods = StringHashMap(Object).init(self.allocator);
         for (stmt.methods.items) |maybe_method| {
             switch (maybe_method.*) {
@@ -142,6 +152,11 @@ pub const Interpreter = struct {
         }
         const class_type_ref = self.allocator.create(Callable) catch return err.outOfMemory();
         class_type_ref.*.Class = Class.init(stmt.name.lexeme, superclass, methods);
+
+        if (superclass) |_| {
+            self.environment = self.environment.enclosing.?;
+        }
+
         try self.environment.assign(stmt.name, Object{ .Class = class_type_ref }, self.allocator);
         return null;
     }
@@ -251,6 +266,46 @@ pub const Interpreter = struct {
     }
 
     // visitorExpr logic
+    pub fn visitSuperExpr(self: *Self, expr: e.Super, addr: usize) T {
+        const distance = self.locals.get(addr).?;
+        const superclass = try self.environment.getAt(distance, "super", self.allocator);
+        var instance_ref: ?*Instance = null;
+        switch (try self.environment.getAt(distance-1, "this", self.allocator)) {
+            .Instance => |callable| { 
+                switch (callable.*) {
+                    .Instance => |instance| {
+                        instance_ref = instance;
+                    },
+                    else => unreachable
+                }
+            },
+            else => unreachable
+        }
+        var maybe_method: ?Object = null;
+        switch (superclass) {
+            .Class => |callable| {
+                switch (callable.*) {
+                    .Class => |unwrap_class| {
+                        maybe_method = unwrap_class.findMethod(expr.method.lexeme);
+                    },
+                    else => unreachable
+                }
+            },
+            else => unreachable
+        }
+
+        if (maybe_method) |method| {
+            return try method.bind(instance_ref.?, self.allocator);
+        } 
+
+        const error_message = std.fmt.allocPrint(
+            self.allocator, 
+            "Undefined property {s}.", 
+            .{expr.method.lexeme}
+        ) catch return err.outOfMemory();
+        return err.errorMessage(RuntimeError, expr.keyword.line, error_message, RuntimeError.UndefinedProperty, self.allocator);
+    }
+
     pub fn visitSetExpr(self: *Self, expr: e.Set) T {
         const object = try self.evaluate(expr.object);
         const value = try self.evaluate(expr.value);

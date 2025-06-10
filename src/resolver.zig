@@ -159,6 +159,8 @@ pub const Resolver = struct {
             if (std.mem.eql(u8, stmt.name.lexeme, superclass.@"var".name.lexeme)) return err.errorMessage(CompileError, stmt.name.line, "A class cannot inherit from itself.", CompileError.RecursiveInheritanceError, self.allocator);
  
             try self.resolveExpr(superclass);
+            try self.beginScope();
+            try self.scopes.getLast().put("super", true);
         }
 
         try self.beginScope();
@@ -173,6 +175,10 @@ pub const Resolver = struct {
             }
         }
         self.endScope();
+
+        if (stmt.superclass) |_| { 
+            self.endScope(); 
+        }
     }
 
     pub fn visitPrintStmt(self: *Self, stmt: s.Print) T {
@@ -202,6 +208,10 @@ pub const Resolver = struct {
     }
 
     // Implement Expressions
+    pub fn visitSuperExpr(self: *Self, expr: e.Super, addr: usize) T {
+        try self.resolveLocal(addr, expr.keyword);
+    }
+
     pub fn visitVarExpr(self: *Self, expr: e.Var, addr: usize) T {
         const scopes_size = self.scopes.items.len;
         if (scopes_size > 0) {
