@@ -18,8 +18,7 @@ pub const Clock = struct {
         _ = self;
         _ = interpreter;
         _ = arguments;
-        std.debug.print("{d}\n", .{@divFloor(std.time.milliTimestamp(), 1000)});
-        return Object{.Nil = null};
+        return Object{.Number = @floatFromInt(@divFloor(std.time.milliTimestamp(), 1000))};
     }
 
     pub fn toString(self: *S, alloc: std.mem.Allocator) err.AllocationError![]const u8{

@@ -78,7 +78,6 @@ pub const Interpreter = struct {
         while (statements.items.len > 0) {
             const statement = statements.orderedRemove(0);
             _ = try self.execute(statement);
-            // DEBUG: environments
         }     
     }
 
@@ -95,7 +94,7 @@ pub const Interpreter = struct {
     fn evaluate(self: *Self, expr: *e.Expr) T {
         const visitor = self.initExprVisitor();
         // DEBUGGING
-        expr.activeField();
+        // expr.activeField();
         return expr.accept(T, visitor);
     }
 
@@ -103,7 +102,7 @@ pub const Interpreter = struct {
     fn execute(self: *Self, stmt: *s.Stmt) stmt_T {
         const visitor = self.initStmtVisitor();
         // DEBUGGING
-        stmt.activeField();
+        // stmt.activeField();
         return try stmt.accept(stmt_T, visitor);
     }
 
