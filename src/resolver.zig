@@ -32,6 +32,7 @@ const LoopScopeType = union(enum) {
 const ClassScopeType = union(enum) {
     None,
     Class,
+    Subclass,
 };
 
 pub const Resolver = struct {
@@ -156,6 +157,7 @@ pub const Resolver = struct {
         try self.define(stmt.name);
         
         if (stmt.superclass) |superclass| {
+            self.currentClass = ClassScopeType.Subclass;
             if (std.mem.eql(u8, stmt.name.lexeme, superclass.@"var".name.lexeme)) return err.errorMessage(CompileError, stmt.name.line, "A class cannot inherit from itself.", CompileError.RecursiveInheritanceError, self.allocator);
  
             try self.resolveExpr(superclass);
@@ -209,6 +211,11 @@ pub const Resolver = struct {
 
     // Implement Expressions
     pub fn visitSuperExpr(self: *Self, expr: e.Super, addr: usize) T {
+        switch (self.currentClass) {
+            .Class => return err.errorMessage(CompileError, expr.keyword.line, "Can't use 'super' in a class with no superclass", CompileError.IncorrectSuperScope, self.allocator),
+            .None => return err.errorMessage(CompileError, expr.keyword.line, "Can't use 'super' outside of a class.", CompileError.IncorrectSuperScope, self.allocator),
+            .Subclass => {},
+        }
         try self.resolveLocal(addr, expr.keyword);
     }
 

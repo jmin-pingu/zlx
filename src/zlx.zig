@@ -64,7 +64,7 @@ fn run_file(path: []const u8, interpreter: *Interpreter, resolver: *Resolver, al
     const buffer = allocator.alloc(u8, file_size) catch return err.outOfMemory();
     defer file.close();
     file.reader().readNoEof(buffer) catch return FileError.ReadError;
-    try run(buffer, interpreter, resolver, allocator);
+    run(buffer, interpreter, resolver, allocator) catch std.process.exit(1);
 }
 
 fn run(source: []const u8, interpreter: *Interpreter, resolver: *Resolver, allocator: std.mem.Allocator) !void { 
@@ -79,7 +79,7 @@ fn run(source: []const u8, interpreter: *Interpreter, resolver: *Resolver, alloc
     // static analysis and actual interpretation
     // TODO: this about how I want to handle errors
     for (statements.items) |statement| {
-        resolver.resolveStatement(statement) catch std.process.exit(1);
+        try resolver.resolveStatement(statement);
     }
     _ = try interpreter.interpret(&statements);
 }
