@@ -72,14 +72,14 @@ pub fn errorMessage(comptime ErrorType: type, line_number: ?usize, message: []co
         std.debug.print(
             "{s}", 
             .{
-                std.fmt.allocPrint(allocator, "[line: {d}] {!}: {s}\n", .{num, err, message}) catch return outOfMemory()
+                std.fmt.allocPrint(allocator, "[line: {d}] {}: {s}\n", .{num, err, message}) catch return outOfMemory()
             }
         );
     } else {
         std.debug.print(
             "{s}", 
             .{
-                std.fmt.allocPrint(allocator, "{!}: {s}\n", .{err, message}) catch return outOfMemory()
+                std.fmt.allocPrint(allocator, "{}: {s}\n", .{err, message}) catch return outOfMemory()
             }
         );
 

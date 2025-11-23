@@ -22,9 +22,9 @@ pub fn main() !void {
     const allocator = arena.allocator();
     
     var args = std.process.args();
-    var argv = ArrayList([]const u8).init(allocator);
+    var argv = try ArrayList([]const u8).initCapacity(allocator, 0);
     while (args.next()) |arg| {
-        try argv.append(arg);
+        try argv.append(allocator, arg);
     }
 
     var interpreter = try Interpreter.init(allocator);
@@ -34,7 +34,11 @@ pub fn main() !void {
         std.debug.print("Usage Error: zlox [program_path]\n", .{});
         return Error.UsageError;
     } else if (argv.items.len == 1) {
-        std.debug.print("Opening interpreter: {s}\n", .{argv.items});
+        std.debug.print("Opening interpreter: ", .{});
+        for (argv.items) |arg| {
+            std.debug.print("{s}", .{arg});
+        }
+        std.debug.print("\n", .{});
         try run_prompt(&interpreter, &resolver, allocator);
 
     } else {
@@ -44,16 +48,20 @@ pub fn main() !void {
 }
 
 fn run_prompt(interpreter: *Interpreter, resolver: *Resolver, allocator: std.mem.Allocator) !void { 
-    const stdout = std.io.getStdOut().writer();
-    const stdin = std.io.getStdIn().reader();
+
+    var writer_buffer: [512]u8 = undefined;
+    var reader_buffer: [512]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&writer_buffer);
+    var stdin_reader = std.fs.File.stdin().reader(&reader_buffer);
+    const stdout = &stdout_writer.interface;
+    const stdin = &stdin_reader.interface;
     stdout.writeAll("zlox\n") catch return FileError.StdoutError;
-    var buffer: [512]u8 = undefined;
-    @memset(buffer[0..], 0);
+    // var buffer: [512]u8 = undefined;
+    // @memset(buffer[0..], 0);
 
     stdout.print("> ", .{}) catch return FileError.StdoutError;
-    while (stdin.readUntilDelimiterOrEof(buffer[0..], '\n') catch return Error.ReadError) |line| {
+    while (stdin.takeDelimiter('\n') catch return Error.ReadError) |line| {
         run(line, interpreter, resolver, allocator) catch {};
-        @memset(buffer[0..], 0);
         stdout.print("> ", .{}) catch return FileError.StdoutError;
     }
 }
@@ -63,7 +71,8 @@ fn run_file(path: []const u8, interpreter: *Interpreter, resolver: *Resolver, al
     const file_size = (file.stat() catch return FileError.OpenError).size;
     const buffer = allocator.alloc(u8, file_size) catch return err.outOfMemory();
     defer file.close();
-    file.reader().readNoEof(buffer) catch return FileError.ReadError;
+    var file_reader = file.reader(buffer);
+    file_reader.interface.readSliceAll(buffer) catch return FileError.ReadError;
     run(buffer, interpreter, resolver, allocator) catch std.process.exit(1);
 }
 

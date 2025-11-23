@@ -49,7 +49,7 @@ pub const Resolver = struct {
     pub fn init(interpreter: *Interpreter, allocator: std.mem.Allocator) Resolver {
         return Resolver{ 
             .interpreter = interpreter,
-            .scopes = ArrayList(*StringHashMap(bool)).init(allocator),
+            .scopes = ArrayList(*StringHashMap(bool)).empty,
             .allocator = allocator,
         };
     }
@@ -75,7 +75,7 @@ pub const Resolver = struct {
     fn beginScope(self: *Self) AllocationError!void {
         const map = self.allocator.create(StringHashMap(bool)) catch return err.outOfMemory();
         map.* = StringHashMap(bool).init(self.allocator);
-        try self.scopes.append(map);
+        try self.scopes.append(self.allocator, map);
     }
 
     fn endScope(self: *Self) void {

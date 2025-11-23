@@ -38,10 +38,10 @@ pub const Parser = struct {
     // }
  
     pub fn parse(self: *Parser) ParseError!ArrayList(*Stmt) {
-        var statements = ArrayList(*Stmt).init(self.allocator);
+        var statements = ArrayList(*Stmt).empty;
         // TODO: do we need to dealloc the ArrayList(Stmt)
         while (!self.reachedEnd()) {
-            statements.append(try self.declaration()) catch return err.outOfMemory();
+            statements.append(self.allocator, try self.declaration()) catch return err.outOfMemory();
         }
         return statements;
     }
@@ -67,9 +67,9 @@ pub const Parser = struct {
         }         
         _ = try self.consume(TokenType.LEFT_BRACE, "Expect '{' before class body.");
 
-        var methods = ArrayList(*s.Stmt).init(self.allocator);
+        var methods = ArrayList(*s.Stmt).empty;
         while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) {
-            try methods.append(try self.function("method"));
+            try methods.append(self.allocator, try self.function("method"));
         }
 
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' after class body.");
@@ -83,11 +83,11 @@ pub const Parser = struct {
         err_msg = std.fmt.allocPrint(self.allocator, "Expect '(' after {s} name", .{kind}) catch return err.outOfMemory();
         _ = try self.consume(TokenType.LEFT_PAREN, "");
 
-        var parameters = ArrayList(Token).init(self.allocator);
+        var parameters = ArrayList(Token).empty;
         while (!self.check(TokenType.RIGHT_PAREN)) {
             if (parameters.items.len >= 255) return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 parameters", ParseError.TooManyArguments, self.allocator);
 
-            parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
+            parameters.append(self.allocator, try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
             _ = self.match(1, [1]TokenType{TokenType.COMMA});
         }
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters");
@@ -146,18 +146,18 @@ pub const Parser = struct {
         var body = try self.breakStatement(condition.?);
 
         if (increment != null) {
-            var statements = ArrayList(*Stmt).init(self.allocator);
-            statements.append(body) catch return err.outOfMemory();
-            statements.append(try s.Expression.new(increment.?, self.allocator)) catch return err.outOfMemory();
+            var statements = ArrayList(*Stmt).empty;
+            statements.append(self.allocator, body) catch return err.outOfMemory();
+            statements.append(self.allocator, try s.Expression.new(increment.?, self.allocator)) catch return err.outOfMemory();
             body = try s.Block.new(statements, self.allocator);
         }
 
         body = try s.While.new(condition.?, body, self.allocator);
 
         if (initializer != null) {
-            var statements = ArrayList(*Stmt).init(self.allocator);
-            statements.append(initializer.?) catch return err.outOfMemory();
-            statements.append(body) catch return err.outOfMemory();
+            var statements = ArrayList(*Stmt).empty;
+            statements.append(self.allocator, initializer.?) catch return err.outOfMemory();
+            statements.append(self.allocator, body) catch return err.outOfMemory();
             body = try s.Block.new(statements, self.allocator);
         }
         return body;
@@ -207,14 +207,14 @@ pub const Parser = struct {
 
     fn breakBlock(self: *Parser, condition: *expr.Expr) ParseError!ArrayList(*Stmt) {
         var break_count: u8 = 0;
-        var statements = ArrayList(*s.Stmt).init(self.allocator);
+        var statements = ArrayList(*s.Stmt).empty;
         // TODO: still issue with managing break count.
         while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) {
             if (break_count > 1) return err.errorMessage(ParseError, self.peek().line, "break appears multiple times in block", ParseError.SyntaxError, self.allocator);
             const stmt = try self.breakDeclaration(condition);
             if (stmt.* == .@"break") break_count += 1;
 
-            try statements.append(stmt);
+            try statements.append(self.allocator, stmt);
         }
 
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
@@ -246,8 +246,8 @@ pub const Parser = struct {
     }
 
     fn block(self: *Parser) ParseError!ArrayList(*Stmt) {
-        var statements = ArrayList(*s.Stmt).init(self.allocator);
-        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) statements.append(try self.declaration()) catch return err.outOfMemory();
+        var statements = ArrayList(*s.Stmt).empty;
+        while (!self.check(TokenType.RIGHT_BRACE) and !self.reachedEnd()) statements.append(self.allocator, try self.declaration()) catch return err.outOfMemory();
         _ = try self.consume(TokenType.RIGHT_BRACE, "Expect '}' at end of block");
         return statements;
     }
@@ -380,15 +380,15 @@ pub const Parser = struct {
     } 
 
     fn finishCall(self: *Parser, callee: *expr.Expr) ParseError!*expr.Expr {
-        var arguments = ArrayList(*expr.Expr).init(self.allocator);
+        var arguments = ArrayList(*expr.Expr).empty;
         if (!self.check(TokenType.RIGHT_PAREN)) {
             if (arguments.items.len >= 255) {
                 return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 arguments", FunctionError.TooManyArguments, self.allocator);
             }
 
-            arguments.append(try self.expression()) catch return err.outOfMemory();
+            arguments.append(self.allocator, try self.expression()) catch return err.outOfMemory();
             while (self.match(1, [1]TokenType{TokenType.COMMA})) {
-                arguments.append(try self.expression()) catch return err.outOfMemory();
+                arguments.append(self.allocator, try self.expression()) catch return err.outOfMemory();
             }
         }
         const right_paren = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after arguments");
@@ -397,11 +397,11 @@ pub const Parser = struct {
 
     fn anonymousFunction(self: *Parser) ParseError!*s.Stmt {
         const paren = try self.consume(TokenType.LEFT_PAREN, "Expect '(' after anonymous function expression");
-        var parameters = ArrayList(Token).init(self.allocator);
+        var parameters = ArrayList(Token).empty;
         while (!self.check(TokenType.RIGHT_PAREN)) {
             if (parameters.items.len >= 255) return err.errorMessage(ParseError, self.peek().line, "Can't have more than 255 parameters", ParseError.TooManyArguments, self.allocator);
 
-            parameters.append(try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
+            parameters.append(self.allocator, try self.consume(TokenType.IDENTIFIER, "Expect parameter name")) catch return err.outOfMemory();
             _ = self.match(1, [1]TokenType{TokenType.COMMA});
         }
         _ = try self.consume(TokenType.RIGHT_PAREN, "Expect ')' after parameters");
@@ -508,12 +508,12 @@ test "parser: helper method (`advance`, `peek`, `previous`) functionality" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    var tokens = ArrayList(Token).init(allocator);
-    defer tokens.deinit();
-    try tokens.append(Token.new(TokenType.NUMBER, "1", "1", 1));
-    try tokens.append(Token.new(TokenType.STAR, "*", null, 1));
-    try tokens.append(Token.new(TokenType.NUMBER, "2", "2", 1));
-    try tokens.append(Token.new(TokenType.EOF, "", null, 1));
+    var tokens = ArrayList(Token).empty;
+    defer tokens.deinit(allocator);
+    try tokens.append(allocator, Token.new(TokenType.NUMBER, "1", "1", 1));
+    try tokens.append(allocator, Token.new(TokenType.STAR, "*", null, 1));
+    try tokens.append(allocator, Token.new(TokenType.NUMBER, "2", "2", 1));
+    try tokens.append(allocator, Token.new(TokenType.EOF, "", null, 1));
 
     var parser = Parser.new(tokens, allocator);
     try std.testing.expectEqual(false, parser.check(TokenType.EOF));

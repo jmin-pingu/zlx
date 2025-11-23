@@ -88,8 +88,8 @@ pub const Function = struct {
         stmt_ref.* = Stmt{ 
             .function= Function {
                 .name= name, 
-                .params = params.clone() catch return err.outOfMemory(),
-                .body= body.clone() catch return err.outOfMemory() 
+                .params = params.clone(allocator) catch return err.outOfMemory(),
+                .body= body.clone(allocator) catch return err.outOfMemory() 
             } 
         };
         return stmt_ref;

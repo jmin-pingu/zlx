@@ -360,9 +360,9 @@ pub const Interpreter = struct {
     pub fn visitCallExpr(self: *Self, expr: e.Call) T {
         const callee = try self.evaluate(expr.callee);
 
-        var arguments = ArrayList(Object).init(self.allocator);
+        var arguments = ArrayList(Object).empty;
         for (expr.arguments.items) |arg| {
-            arguments.append(try self.evaluate(arg)) catch return err.outOfMemory();
+            arguments.append(self.allocator, try self.evaluate(arg)) catch return err.outOfMemory();
         }
 
         var callable = switch (callee) {

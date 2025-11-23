@@ -43,7 +43,7 @@ pub const Scanner = struct {
     pub fn new(source: []const u8, allocator: std.mem.Allocator) Scanner {
         return Scanner{
             .source = source,
-            .tokens = ArrayList(Token).init(allocator),
+            .tokens = ArrayList(Token).empty,
             .allocator = allocator
         };
     }
@@ -54,7 +54,7 @@ pub const Scanner = struct {
             // TODO: implement SyntaxError handling
             try self.scanToken();
         }
-        self.tokens.append(Token.new(TokenType.EOF, "", null, self.line)) catch return err.outOfMemory();
+        self.tokens.append(self.allocator, Token.new(TokenType.EOF, "", null, self.line)) catch return err.outOfMemory();
         return self.tokens;
     }
 
@@ -181,7 +181,7 @@ pub const Scanner = struct {
             unreachable;
         };
         @memcpy(lexeme, self.source[self.start..self.current]);
-        self.tokens.append(Token.new(ttype, lexeme, literal, self.line)) catch {
+        self.tokens.append(self.allocator, .new(ttype, lexeme, literal, self.line)) catch {
             std.debug.print("out of memory\n", .{});
             unreachable;
         };
