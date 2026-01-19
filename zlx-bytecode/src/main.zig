@@ -58,7 +58,7 @@ pub fn interpret(source: []const u8, allocator: std.mem.Allocator) !InterpretRes
     const compiler = try allocator.create(Compiler);
     const metadata = try allocator.create(Metadata);
     metadata.* = Metadata.init(allocator); 
-    compiler.* = Compiler.init(metadata);
+    compiler.* = try Compiler.init(metadata, allocator);
     var vm = VM.init(metadata, allocator);
     defer vm.deinit(allocator);
     defer metadata.trace(null);

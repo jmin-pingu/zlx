@@ -9,13 +9,20 @@ const ObjectType = enum {
     Function
 };
 
+pub const FunctionType = enum {
+    Function,
+    Script
+};
+
 pub const Object = struct {
     objectType: ObjectType,
     next: ?*Object,
     
-    pub fn toObjectType(self: *Object) *switch (self.objectType) {
-        .String => String,
-    } {
+    pub fn toObjectType(self: *Object, comptime T: type) *T {
+        switch (T) {
+            String, Function => {},
+            else => @compileError("Unsupported type")
+        }
         return @ptrCast(@alignCast(self));
     }
 
@@ -23,7 +30,11 @@ pub const Object = struct {
         var curr: ?*Object = self;
         while (curr) |obj| {
             curr = obj.next;
-            obj.toObjectType().deinit(allocator);
+
+            switch (obj.objectType) {
+                .String => obj.toObjectType(String).deinit(allocator),
+                .Function => obj.toObjectType(Function).deinit(allocator),
+            }
         }
     }
 };
@@ -55,29 +66,31 @@ pub const String = struct {
 pub const Function = struct {
     object: Object,
     arity: usize,
-    chunk: *const Chunk,
-    name: *String,
+    chunk: *Chunk,
+    name: ?*String,
 
     pub fn toObject(self: *String) *Object {
         return @ptrCast(@alignCast(self));
     }
     
-    pub fn initFunction(allocator: std.mem.Allocator, metadata: *Metadata) !*Function {
+    pub fn initFunction(allocator: std.mem.Allocator, metadata: *Metadata, name: ?*String) !*Function {
         const function = try allocator.create(Function);
-        const chunk = Chunk.init(allocator);
+        const chunkPtr = try allocator.create(Chunk);
+        chunkPtr.* = Chunk.init(allocator);
         function.* = .{ 
             .object = .{ .objectType = .Function, .next = metadata.allocations }, 
             .arity = 0, 
-            .chunk = chunk, 
-            .name = undefined
+            .chunk = chunkPtr, 
+            .name = name
         };
         // NOTE: do I need to add to allocations?
         return function;
     }
-    
-    pub fn deinit(self: *String, allocator: std.mem.Allocator) void {
-        allocator.free(self.value);
+
+    pub fn deinit(self: *Function, allocator: std.mem.Allocator) void {
+        if (self.name) |name| name.deinit(allocator);
         allocator.destroy(self);
+        self.chunk.deinit(allocator);
     }
 };
 
@@ -150,7 +163,10 @@ pub const Value = union(ValueTag) {
                 }
                 switch (self.Object.objectType) {
                     .String => {
-                        return self.Object.toObjectType() == other.Object.toObjectType();
+                        return self.Object.toObjectType(String) == other.Object.toObjectType(String);
+                    },
+                    .Function => {
+                        return self.Object.toObjectType(Function) == other.Object.toObjectType(Function);
                     },
                 }
             },
@@ -166,8 +182,16 @@ pub const Value = union(ValueTag) {
             .Object => {
                 switch (self.Object.objectType) {
                     .String => {
-                        const string: *String = self.Object.toObjectType();
+                        const string: *String = self.Object.toObjectType(String);
                         std.debug.print("{s}", .{string.value});
+                    },
+                    .Function => {
+                        const function: *Function = self.Object.toObjectType(Function);
+                        if (function.name) |name| {
+                            std.debug.print("<fn {s}>", .{name.value});
+                        } else {
+                            std.debug.print("<script>", .{});
+                        }
                     },
                 }
             }

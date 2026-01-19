@@ -5,6 +5,8 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Object = @import("value.zig").Object;
+const Function = @import("value.zig").Function;
+const FunctionType = @import("value.zig").FunctionType;
 const ParseError = @import("error.zig").ParseError;
 const Parser = @import("parser.zig").Parser;
 const errorAt = @import("error.zig").errorAt;
@@ -30,8 +32,9 @@ const Precedence = enum {
 
 pub const Compiler = struct {
     parser: *Parser, 
-    currentChunk: *Chunk,
     metadata: *Metadata,
+    function: *Function,
+    functionType: FunctionType,
     locals: [std.math.maxInt(u8)+1]Local,
     localCount: u8,
     scopeDepth: u8,
@@ -111,29 +114,44 @@ pub const Compiler = struct {
         }
     );
 
-    pub fn init(metadata: *Metadata) Self {
+    pub fn init(metadata: *Metadata, allocator: std.mem.Allocator) !Self {
+        const initLocal = Local{
+            .depth=0,
+            .name=Token.init(.IDENTIFIER, "", 0),
+            .mutable=false,
+        };
+        const locals = [1]Local{initLocal} ++ [_]Local{undefined} ** (std.math.maxInt(u8));
         return .{
             .parser = undefined,
-            .currentChunk = undefined,
             .metadata = metadata, 
-            .locals = [_]Local{undefined} ** (std.math.maxInt(u8) + 1),
-            .localCount = 0,
+            .locals = locals,
+            .localCount = 1,
             .scopeDepth = 0,
             .currentLoop = null,
+            .function = try Function.initFunction(allocator, metadata, null),
+            .functionType = .Script,
         };
     }
 
-    pub fn compile(self: *Self, source: []const u8, chunk: *Chunk, allocator: std.mem.Allocator) !bool {
+    pub fn currentChunk(self: *Self) *Chunk {
+        return self.function.chunk;
+    }
+
+
+    pub fn compile(self: *Self, source: []const u8, allocator: std.mem.Allocator) !*Function {
         var parser = try Parser.init(source, allocator);
         self.parser = &parser;
-        self.currentChunk = chunk;
-
         try self.parser.advance();
         while (!(try self.match(.EOF))) {
             try self.declaration(allocator);
         }
+        return try self.endCompiler(allocator);
+    }
+
+    pub fn endCompiler(self: *Self, allocator: std.mem.Allocator) !*Function {
         try self.emitReturn(allocator);
-        return true;
+        // NOTE: need to disassemble 
+        return self.function;
     }
 
     fn declaration(self: *Self, allocator: std.mem.Allocator) ParseError!void {
@@ -143,7 +161,7 @@ pub const Compiler = struct {
             try self.varDeclaration(allocator, false);
         } else {
             self.statement(allocator) catch |err| {
-                std.debug.print("{any}\n", .{err});
+                std.debug.print("error: {any}\n", .{err});
                 try self.synchronize();
             };
         }
@@ -302,7 +320,7 @@ pub const Compiler = struct {
         } else {
             try self.expressionStatement(allocator);
         }
-        var loopStart: usize = self.currentChunk.indexOfNextInstruction();
+        var loopStart: usize = self.currentChunk().indexOfNextInstruction();
         self.currentLoop = loopStart;
         defer self.currentLoop = undefined;
         var exitJump: ?usize = null;
@@ -318,7 +336,7 @@ pub const Compiler = struct {
         // Optional Expression
         if (!(try self.match(.RIGHT_PAREN))) {
             const bodyJump = try self.emitJump(OpCode.OP_JUMP.asByte(), allocator);
-            const incrementStart = self.currentChunk.indexOfNextInstruction();
+            const incrementStart = self.currentChunk().indexOfNextInstruction();
             try self.expression(allocator);
             try self.emitByte(OpCode.OP_POP.asByte(), allocator);
             try self.parser.consume(.RIGHT_PAREN, ParseError.ExpectRightParenthesisAfterFor);
@@ -338,7 +356,7 @@ pub const Compiler = struct {
     }
 
     fn whileStatement(self: *Self, allocator: std.mem.Allocator) !void {
-        const loopStart = self.currentChunk.indexOfNextInstruction();
+        const loopStart = self.currentChunk().indexOfNextInstruction();
         self.currentLoop = loopStart;
         defer self.currentLoop = undefined;
 
@@ -382,7 +400,7 @@ pub const Compiler = struct {
                 try self.emitByte(OpCode.OP_POP.asByte(), allocator);
             } else {
                 if (defaultStart != null) return ParseError.DuplicateDefaultInSwitchScope;
-                defaultStart = self.currentChunk.indexOfNextInstruction();
+                defaultStart = self.currentChunk().indexOfNextInstruction();
                 try self.consumeSwitchArmStatement(&armSuccessJumps, allocator);
             }
         } 
@@ -463,13 +481,13 @@ pub const Compiler = struct {
     }
 
     fn patchJump(self: *Self, offset: usize, allocator: std.mem.Allocator) ParseError!void {
-        const jump = self.currentChunk.indexOfLatestInstruction() - offset - 1;
+        const jump = self.currentChunk().indexOfLatestInstruction() - offset - 1;
         if (jump > std.math.maxInt(u16)) {
             return ParseError.JumpTooLarge;
         }
 
         // Store jump in big endian
-        try self.currentChunk.code.replaceRange(allocator, offset, 2, &[_]u8{
+        try self.currentChunk().code.replaceRange(allocator, offset, 2, &[_]u8{
             @truncate((jump >> 8) & 0xff),
             @truncate(jump & 0xff)
         });
@@ -477,14 +495,14 @@ pub const Compiler = struct {
 
     // Code generation logic >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     fn emitByte(self: *Self, byte: u8, allocator: std.mem.Allocator) ParseError!void {
-        self.currentChunk.write(byte, self.parser.previous.line, allocator) catch return ParseError.ChunkWriteError;
+        self.currentChunk().write(byte, self.parser.previous.line, allocator) catch return ParseError.ChunkWriteError;
     }
 
     /// Emits a OP_LOOP followed by a short, representing the index to loop back to. 
     /// `loopStart`: the index of the instruction to loop back to
     fn emitLoop(self: *Self, loopStart: usize, allocator: std.mem.Allocator) ParseError!void {
         try self.emitByte(OpCode.OP_LOOP.asByte(), allocator);
-        const offset = self.currentChunk.indexOfLatestInstruction() - loopStart + 3;
+        const offset = self.currentChunk().indexOfLatestInstruction() - loopStart + 3;
         if (offset > std.math.maxInt(u16)) {
             return ParseError.JumpTooLarge;
         }
@@ -497,7 +515,7 @@ pub const Compiler = struct {
         try self.emitByte(byte, allocator);
         try self.emitByte(0xff, allocator);
         try self.emitByte(0xff, allocator);
-        return self.currentChunk.indexOfLatestInstruction() - 1;
+        return self.currentChunk().indexOfLatestInstruction() - 1;
     }
 
     fn emitReturn(self: *Self, allocator: std.mem.Allocator) ParseError!void {
@@ -519,7 +537,7 @@ pub const Compiler = struct {
     }
 
     fn makeConstant(self: *Self, value: Value, allocator: std.mem.Allocator) ParseError!u8 {
-        const constantIdx = try self.currentChunk.addConstant(value, allocator);
+        const constantIdx = try self.currentChunk().addConstant(value, allocator);
         if (constantIdx > std.math.maxInt(u8)) {
             try self.parser.errorAtPrevious(ParseError.ChunkConstantsOverflow);
         }

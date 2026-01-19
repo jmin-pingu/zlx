@@ -1,4 +1,6 @@
 const Object = @import("value.zig").Object;
+const Function = @import("value.zig").Function;
+const String = @import("value.zig").String;
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 
@@ -44,7 +46,17 @@ pub const Metadata = struct {
                 std.debug.print("\\00\n", .{});
                 return;
             }
-            std.debug.print("`{s}` -> ", .{obj.toObjectType().value});
+            switch (obj.objectType) {
+                .String => std.debug.print("`{s}` -> ", .{obj.toObjectType(String).value}),
+                .Function => {
+                    const function = obj.toObjectType(Function);
+                    if (function.name) |name| {
+                        std.debug.print("`{s}` -> ", .{name.value});
+                    } else {
+                        std.debug.print("`<script>` -> ", .{});
+                    }
+                }
+            }
             n += 1;
             curr = obj.next;
         }

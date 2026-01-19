@@ -92,7 +92,7 @@ pub const OpCode = enum(u8) {
 
     fn constantInstruction(self: OpCode, chunk: *const Chunk, offset: usize) usize {
         const constantIndex: u8 = chunk.code.items[offset+1];
-        const constant = chunk.constants.get(constantIndex) catch unreachable;
+        const constant = chunk.getConstant(constantIndex) catch unreachable;
         print("{s} {d} `", .{ @tagName(self), constantIndex});
         constant.print();
         print("`\n", .{});
@@ -103,7 +103,7 @@ pub const OpCode = enum(u8) {
         const constantIndexSlice: []u8 = chunk.code.items[offset+1..offset+4];
         const index_ptr: *align(1) u24 = std.mem.bytesAsValue(u24, constantIndexSlice);
         const index: usize = @as(usize, index_ptr.*);
-        print("{s: <20} {d: <3} `{any}`\n", .{ @tagName(self), index, chunk.constants.get(index) catch unreachable });
+        print("{s: <20} {d: <3} `{any}`\n", .{ @tagName(self), index, chunk.getConstant(index) catch unreachable });
         return offset + 4;
     }
 };
@@ -116,7 +116,7 @@ pub const ValueArray = struct {
     }
 
     pub fn write(self: *ValueArray, byte: u8, allocator: std.mem.Allocator) !void {
-        try self.values.append(byte, allocator);
+        try self.values.append(allocator, byte);
     }
 
     pub fn get(self: ValueArray, index: usize) !Value {
@@ -147,12 +147,20 @@ pub const Chunk = struct {
         };
     }
 
+    pub fn getInstructionBasePointer(self: *Chunk) [*]u8 {
+        return self.code.items.ptr;
+    }
+
     pub fn indexOfLatestInstruction(self: *Chunk) usize {
         return self.code.items.len - 1;
     }
 
     pub fn indexOfNextInstruction(self: *Chunk) usize {
         return self.code.items.len;
+    }
+
+    pub fn getConstant(self: *const Chunk, index: usize) !Value {
+        return self.constants.get(index);
     }
 
     pub fn addConstant(self: *Chunk, value: Value, allocator: std.mem.Allocator) !u8 {
@@ -182,6 +190,10 @@ pub const Chunk = struct {
     pub fn deinit(self: *Chunk, allocator: std.mem.Allocator) void {
         self.constants.deinit(allocator);
         self.code.deinit(allocator);
+    }
+
+    pub fn getLine() void {
+        // TODO: implement
     }
 
     pub fn disassemble(self: *const Chunk, name: []const u8) !void {
