@@ -58,8 +58,8 @@ pub fn interpret(source: []const u8, allocator: std.mem.Allocator) !InterpretRes
     const compiler = try allocator.create(Compiler);
     const metadata = try allocator.create(Metadata);
     metadata.* = Metadata.init(allocator); 
-    compiler.* = try Compiler.init(metadata, allocator);
-    var vm = VM.init(metadata, allocator);
+    compiler.* = try Compiler.init(metadata, .Script, null, allocator);
+    var vm = try VM.init(metadata, allocator);
     defer vm.deinit(allocator);
     defer metadata.trace(null);
     return vm.interpret(compiler, source, allocator) catch |err| {
@@ -78,7 +78,7 @@ pub fn runFile(path: []const u8, allocator: std.mem.Allocator) !void {
     var file_reader = file.reader(buffer);
     const file_r= &file_reader.interface;
     file_r.readSliceAll(buffer) catch return error.ReadFailure;
-
+    std.debug.print("{s}\n", .{buffer});
     const result: InterpretResult = try interpret(buffer, allocator);
 
     switch (result) {

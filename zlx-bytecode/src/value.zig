@@ -14,6 +14,8 @@ pub const FunctionType = enum {
     Script
 };
 
+// TODO: change all print use cases to use the Writer/Reader interface + io in stdlib
+
 pub const Object = struct {
     objectType: ObjectType,
     next: ?*Object,
@@ -25,12 +27,19 @@ pub const Object = struct {
         }
         return @ptrCast(@alignCast(self));
     }
+    
+    pub fn print(self: *Object) void {
+        switch (self.objectType) {
+            .String => self.toObjectType(String).print(),
+            .Function => self.toObjectType(Function).print(),
+        }
+
+    }
 
     pub fn deinit(self: *Object, allocator: std.mem.Allocator) void {
         var curr: ?*Object = self;
         while (curr) |obj| {
             curr = obj.next;
-
             switch (obj.objectType) {
                 .String => obj.toObjectType(String).deinit(allocator),
                 .Function => obj.toObjectType(Function).deinit(allocator),
@@ -47,8 +56,15 @@ pub const String = struct {
     pub fn toObject(self: *String) *Object {
         return @ptrCast(@alignCast(self));
     }
+
+    pub fn print(self: String) void {
+        std.debug.print("{s}", .{self.value});
+    }
     
     pub fn initString(value: []const u8, metadata: *Metadata, allocator: std.mem.Allocator) !*String {
+        if (metadata.retrieveString(value)) |object| {
+            return object.toObjectType(String);
+        } 
         const string = try allocator.create(String);
         const value_ptr = try allocator.alloc(u8, value.len);
         @memcpy(value_ptr, value);
@@ -69,8 +85,25 @@ pub const Function = struct {
     chunk: *Chunk,
     name: ?*String,
 
-    pub fn toObject(self: *String) *Object {
+    pub fn toObject(self: *Function) *Object {
         return @ptrCast(@alignCast(self));
+    }
+
+    pub fn toValue(self: *Function) Value {
+        const obj: *Object = @ptrCast(@alignCast(self));
+        return Value{.Object = obj};
+    }
+
+    pub fn print(self: Function) void {
+        if (self.name) |name| {
+            std.debug.print("<", .{});
+            name.print();
+            std.debug.print(">", .{});
+        } else {
+            std.debug.print("<script>", .{});
+        }
+            
+        std.debug.print("[{d}]", .{self.arity});
     }
     
     pub fn initFunction(allocator: std.mem.Allocator, metadata: *Metadata, name: ?*String) !*Function {
@@ -109,6 +142,11 @@ pub const Value = union(ValueTag) {
 
     pub fn initBool(boolean: bool) Value {
         return .{.Bool = boolean};
+    }
+
+    pub fn initFunction(function: *Function) !Value {
+        const object = function.toObject();
+        return .{ .Object = object };
     }
 
     pub fn initString(value: []const u8, metadata: *Metadata, allocator: std.mem.Allocator) !Value {
@@ -183,7 +221,7 @@ pub const Value = union(ValueTag) {
                 switch (self.Object.objectType) {
                     .String => {
                         const string: *String = self.Object.toObjectType(String);
-                        std.debug.print("{s}", .{string.value});
+                        std.debug.print("\"{s}\"", .{string.value});
                     },
                     .Function => {
                         const function: *Function = self.Object.toObjectType(Function);

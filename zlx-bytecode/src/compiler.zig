@@ -4,6 +4,7 @@ const Token = @import("scanner.zig").Token;
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
+const String = @import("value.zig").String;
 const Object = @import("value.zig").Object;
 const Function = @import("value.zig").Function;
 const FunctionType = @import("value.zig").FunctionType;
@@ -66,7 +67,7 @@ pub const Compiler = struct {
     // Parse Table for Pratt's Top Down Parsing Algorithm
     var parseTable = std.enums.EnumArray(TokenType, ParseRule).init(
         .{
-            .LEFT_PAREN     = ParseRule.init(&Self.grouping, null, .NONE),
+            .LEFT_PAREN     = ParseRule.init(Self.grouping, Self.call, .CALL),
             .RIGHT_PAREN    = ParseRule.init(null, null, .NONE),
             .LEFT_BRACE     = ParseRule.init(null, null, .NONE),
             .RIGHT_BRACE    = ParseRule.init(null, null, .NONE),
@@ -114,22 +115,38 @@ pub const Compiler = struct {
         }
     );
 
-    pub fn init(metadata: *Metadata, allocator: std.mem.Allocator) !Self {
+    pub fn init(metadata: *Metadata, ftype: FunctionType, maybeParser: ?*Parser, allocator: std.mem.Allocator) !Self {
         const initLocal = Local{
             .depth=0,
             .name=Token.init(.IDENTIFIER, "", 0),
             .mutable=false,
         };
         const locals = [1]Local{initLocal} ++ [_]Local{undefined} ** (std.math.maxInt(u8));
+        const name = switch(ftype) {
+            .Function => out: {
+                if (maybeParser) |parser| {
+                    break :out try String.initString(parser.previous.token, metadata, allocator);
+                } else {
+                    return ParseError.TODO;
+                }
+            },
+            .Script => null,
+        };
         return .{
-            .parser = undefined,
+            .parser = out: {
+                if (maybeParser) |parser| {
+                    break :out parser;
+                } else {
+                    break :out undefined;
+                }
+            },
             .metadata = metadata, 
             .locals = locals,
             .localCount = 1,
             .scopeDepth = 0,
             .currentLoop = null,
-            .function = try Function.initFunction(allocator, metadata, null),
-            .functionType = .Script,
+            .function = try Function.initFunction(allocator, metadata, name),
+            .functionType = ftype,
         };
     }
 
@@ -155,7 +172,9 @@ pub const Compiler = struct {
     }
 
     fn declaration(self: *Self, allocator: std.mem.Allocator) ParseError!void {
-        if (try self.match(.VAR)) {
+        if (try self.match(.FUN)) {
+            try self.funDeclaration(allocator);
+        } else if (try self.match(.VAR)) {
             try self.varDeclaration(allocator, true);
         } else if (try self.match(.CONST)) {
             try self.varDeclaration(allocator, false);
@@ -185,6 +204,55 @@ pub const Compiler = struct {
         }
 
         try self.parser.consume(.RIGHT_BRACE, ParseError.NoClosingRightBrace);
+    }
+
+    fn funDeclaration(self: *Self, allocator: std.mem.Allocator) !void {
+        const global = try self.parseVariable(allocator, false);
+        self.markInitialized();
+        try self.compileFunction(.Function, allocator);
+        try self.defineVariable(global, allocator);
+    }
+
+    fn compileFunction(self: *Self, ftype: FunctionType, allocator: std.mem.Allocator) !void {
+        const nestedCompiler = try allocator.create(Compiler);
+        defer allocator.destroy(nestedCompiler);
+        nestedCompiler.* = try Compiler.init(self.metadata, ftype, self.parser, allocator);
+        nestedCompiler.beginScope();
+
+        try nestedCompiler.parser.consume(.LEFT_PAREN, ParseError.ExpectLeftParenthesisAfterFnName);
+        if (!nestedCompiler.check(.RIGHT_PAREN)) {
+            while (true) {
+                nestedCompiler.function.arity += 1;
+                if (nestedCompiler.function.arity > 255) {
+                    try errorAt(&nestedCompiler.parser.current, ParseError.FunctionParameterOverflow);
+                }
+                const constant = try nestedCompiler.parseVariable(allocator, false);
+                try nestedCompiler.defineVariable(constant, allocator);
+                if (!(try nestedCompiler.match(.COMMA))) {
+                    break;
+                }
+            }
+
+        }
+        try nestedCompiler.parser.consume(.RIGHT_PAREN, ParseError.ExpectRightParenthesisAfterFnName);
+
+        try nestedCompiler.parser.consume(.LEFT_BRACE, ParseError.ExpectLeftBraceAfterFnBody);
+        try nestedCompiler.block(allocator);
+
+        const function = try nestedCompiler.endCompiler(allocator);
+        try self.emitBytes(
+            @intFromEnum(OpCode.OP_CONSTANT), 
+            try self.makeConstant(try Value.initFunction(function), allocator), 
+            allocator
+        );
+    }
+
+    fn printLocals(self: Self) void {
+        std.debug.print("[ ", .{});
+        for (self.locals[0..self.localCount]) |local| {
+            std.debug.print("({s}, {?d}), ", .{local.name.token, local.depth});
+        }
+        std.debug.print("]\n ", .{});
     }
 
     fn varDeclaration(self: *Self, allocator: std.mem.Allocator, isMutable: bool) !void {
@@ -257,6 +325,7 @@ pub const Compiler = struct {
     }
 
     fn markInitialized(self: *Self) void {
+        if (self.scopeDepth == 0) return;
         self.locals[self.localCount-1].depth = self.scopeDepth;
     }
 
@@ -601,6 +670,32 @@ pub const Compiler = struct {
             },
             else => ParseError.StringUndefined
         };
+    }
+
+    fn call(self: *Self, canAssign: bool, allocator: std.mem.Allocator) ParseError!void {
+        _ = canAssign;
+        std.debug.print("call\n", .{});
+        const argCount = try self.argumentList(allocator);
+        try self.emitBytes(@intFromEnum(OpCode.OP_CALL), argCount, allocator);
+    }
+
+    fn argumentList(self: *Self, allocator: std.mem.Allocator) !u8 {
+        var argCount: u8 = 0;
+        if (!self.check(.RIGHT_PAREN)) {
+            while (true) {
+                try self.expression(allocator);
+                if (argCount == 255) {
+                    return ParseError.FunctionParameterOverflow;
+                }
+                argCount += 1;
+                if (!(try self.match(.COMMA))) {
+                    break;
+                }
+            }
+        }
+
+        try self.parser.consume(.RIGHT_PAREN, ParseError.TODO);
+        return argCount;
     }
 
     fn grouping(self: *Self, canAssign: bool, allocator: std.mem.Allocator) ParseError!void {

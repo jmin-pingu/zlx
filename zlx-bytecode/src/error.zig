@@ -48,6 +48,11 @@ pub const ParseError = error {
     ExpectSemicolonAfterFor,
     DuplicateDefaultInSwitchScope,
     ContinueNotNestedWithinLoop,
+    ExpectLeftParenthesisAfterFnName,
+    ExpectRightParenthesisAfterFnName,
+    ExpectLeftBraceAfterFnBody,
+    FunctionParameterOverflow,
+    TODO
 } || GenericError || ScanError;
 
 pub const ScanError = error {

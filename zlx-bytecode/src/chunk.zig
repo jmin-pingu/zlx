@@ -27,6 +27,8 @@ pub const OpCode = enum(u8) {
     OP_EQUAL_INPLACE, // Keeps the first elemtn on th stack but adds an element to the stack for equality
     OP_GREATER,
     OP_LESS,
+    // Function Operators
+    OP_CALL,
     // Statement Operators
     OP_PRINT,
     OP_POP,
@@ -55,7 +57,7 @@ pub const OpCode = enum(u8) {
 
         switch (self) {
             .OP_RETURN, .OP_NEGATE, .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_POP,
-            .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT => return self.simpleInstruction(offset),
+            .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT, .OP_CALL => return self.simpleInstruction(offset),
             .OP_CONSTANT, .OP_SET_GLOBAL, .OP_GET_GLOBAL, .OP_DEFINE_GLOBAL => return self.constantInstruction(chunk, offset),
             .OP_SET_LOCAL, .OP_GET_LOCAL => return self.byteInstruction(chunk, offset),
             .OP_CONSTANT_LONG => return self.constantInstructionLong(chunk, offset),
