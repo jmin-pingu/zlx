@@ -313,7 +313,6 @@ pub const Scanner = struct {
                 '\n' => {
                     self.line += 1;
                     _ = self.advance();
-                    return;
                 },
                 else => return,
             };
