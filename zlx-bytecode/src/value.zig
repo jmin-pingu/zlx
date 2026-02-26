@@ -15,7 +15,6 @@ pub const FunctionType = enum {
 };
 
 // TODO: change all print use cases to use the Writer/Reader interface + io in stdlib
-
 pub const Object = struct {
     objectType: ObjectType,
     next: ?*Object,
@@ -251,7 +250,7 @@ pub const Value = union(ValueTag) {
     }
 };
 
-test "value" {
+test "values initialization" {
     const allocator = std.testing.allocator;
     const s: Value = try Value.initString("test", null, allocator);
     defer s.deinit(allocator);

@@ -41,7 +41,6 @@ pub const Compiler = struct {
     scopeDepth: u8,
     currentLoop: ?usize,
 
-
     const Self = @This();
     const ParseFn = *const fn(*Compiler, canAssign: bool, allocator: std.mem.Allocator) ParseError!void;
     const ParseRule = struct {
@@ -336,6 +335,8 @@ pub const Compiler = struct {
             try self.continueStatement(allocator);
         } else if (try self.match(.IF)) {
             try self.ifStatement(allocator);
+        } else if (try self.match(.RETURN)) {
+            try self.returnStatement(allocator);
         } else if (try self.match(.SWITCH)) {
             try self.switchStatement(allocator);
         } else if (try self.match(.FOR)) {
@@ -367,6 +368,19 @@ pub const Compiler = struct {
         try self.expression(allocator);
         try self.parser.consume(.SEMICOLON, ParseError.NoClosingSemicolon);
         try self.emitByte(OpCode.OP_PRINT.asByte(), allocator);
+    }
+
+    fn returnStatement(self: *Self, allocator: std.mem.Allocator) !void {
+        if (self.functionType == .Script) {
+            try errorAt(&self.parser.current, ParseError.ReturnAtTopLevelCode);
+        }
+        if (try self.match(.SEMICOLON)) {
+            try self.emitReturn(allocator);
+        } else {
+            try self.expression(allocator);
+            try self.parser.consume(.SEMICOLON, ParseError.NoClosingSemicolon);
+            try self.emitByte(@intFromEnum(OpCode.OP_RETURN), allocator);
+        }
     }
 
     fn continueStatement(self: *Self, allocator: std.mem.Allocator) !void {
@@ -588,6 +602,7 @@ pub const Compiler = struct {
     }
 
     fn emitReturn(self: *Self, allocator: std.mem.Allocator) ParseError!void {
+        try self.emitByte(OpCode.OP_NIL.asByte(), allocator);
         try self.emitByte(OpCode.OP_RETURN.asByte(), allocator);
     }
 
@@ -674,7 +689,6 @@ pub const Compiler = struct {
 
     fn call(self: *Self, canAssign: bool, allocator: std.mem.Allocator) ParseError!void {
         _ = canAssign;
-        std.debug.print("call\n", .{});
         const argCount = try self.argumentList(allocator);
         try self.emitBytes(@intFromEnum(OpCode.OP_CALL), argCount, allocator);
     }
@@ -785,7 +799,6 @@ pub const Compiler = struct {
     }
 
     // Helper functions >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
     /// If the current token is the same as `ttype`, advance and return `true`. Otherwise, return `false`.
     fn match(self: *Self, ttype: TokenType) !bool {
         if (!self.check(ttype)) {
@@ -840,6 +853,7 @@ const Decrementer = struct {
     }
 };
 
+test "loops" {}
     
 test "functions" {
     var list = std.ArrayList(i32).init(std.testing.allocator);
@@ -847,3 +861,7 @@ test "functions" {
     try list.append(42);
     try std.testing.expectEqual(@as(i32, 42), list.pop());
 }
+
+test "precedence" {}
+
+

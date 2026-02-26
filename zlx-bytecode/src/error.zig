@@ -52,6 +52,7 @@ pub const ParseError = error {
     ExpectRightParenthesisAfterFnName,
     ExpectLeftBraceAfterFnBody,
     FunctionParameterOverflow,
+    ReturnAtTopLevelCode,
     TODO
 } || GenericError || ScanError;
 

@@ -64,7 +64,7 @@ pub const Scanner = struct {
         return .{
             .start = source[0..source.len].ptr,
             .current = source[0..source.len].ptr,
-            .line = 0,
+            .line = 1,
             // NOTE: need to include this to handle no sentinel for the repl
             .remaining = source.len,
         };
@@ -322,7 +322,7 @@ pub const Scanner = struct {
 };
 
 // TODO: implement snapshot testing for these.
-test "scan token" {
+test "scan tokens" {
     const single_line_source: []const u8 = "( ) { } ; , . - + / * ! != < <= > >= = == // don't return this comment\n( / ( ) \"hello\" + +=\ntrue false fun if else nil or super return print var while and class whil close c a t const switch default continue";
     const allocator = std.testing.allocator;
     const source = try allocator.alloc(u8, single_line_source.len);

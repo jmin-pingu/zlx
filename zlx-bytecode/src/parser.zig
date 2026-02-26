@@ -56,3 +56,8 @@ pub const Parser = struct {
         return errorAt(&self.previous, err);
     }
 };
+
+// TODO: implement
+test "basic parse" {
+
+}

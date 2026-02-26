@@ -46,10 +46,9 @@ pub const OpCode = enum(u8) {
         return @intFromEnum(self);
     }
 
-    pub fn disassemble(self: OpCode, chunk: *const Chunk, offset: usize, rleIdx: usize) !usize {
+    pub fn disassemble(self: OpCode, chunk: *const Chunk, offset: usize, index: usize) !usize {
         print("0x{x:0>4} ", .{offset});
-
-        if (try chunk.line.decodeFirst(rleIdx)) |line| {
+        if (try chunk.line.decodeFirst(index)) |line| {
             print(" {d:>4} ", .{ line });
         } else {
             print("    | ", .{});
@@ -199,14 +198,16 @@ pub const Chunk = struct {
     }
 
     pub fn disassemble(self: *const Chunk, name: []const u8) !void {
-        print("== {s} ==\n", .{ name });
+        print("=== chunk: {s} ===\n", .{ name });
         var offset: usize = 0;
-        var rleIdx: usize = 0;
+        var idx: usize = 0;
         while (offset < self.code.items.len) {
             const opCode: OpCode = @enumFromInt(self.code.items[offset]);
-            offset = try opCode.disassemble(self, offset, rleIdx);
-            rleIdx += 1;
+            offset = try opCode.disassemble(self, offset, idx);
+            idx += 1;
         }
     }
 };
 
+// TODO: implement
+test "chunk" {}
