@@ -230,3 +230,4 @@ primary        -> NUMBER | STRING | "true" | "false" | "nil"
 - [ ] Implement vtable structure for interfaces
 - [ ] Improve memory management
 - [ ] Add multithreading syntax (Go-style)
+- [ ] Lazy evaluation statement with cache-ing
