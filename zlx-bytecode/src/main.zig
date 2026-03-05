@@ -88,8 +88,5 @@ pub fn runFile(path: []const u8, allocator: std.mem.Allocator) !void {
     }
 }
 
-test "simple test" {
-}
-
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
 const lib = @import("zlx_bytecode_lib");

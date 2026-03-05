@@ -79,6 +79,7 @@ pub fn errorAt(token: *const Token, err: ParseError) ParseError!void {
         ParseError.ChunkConstantsOverflow => "Too many constants in one chunk.",
         ParseError.InvalidAssignmentTarget => "Invalid assignment target.",
         ParseError.NoClosingRightBrace => "No closing right brace.",
+        ParseError.ReturnAtTopLevelCode => "Cannot return from top-level code.",
         else => null,
     };
     if (maybeMessage) |message| {

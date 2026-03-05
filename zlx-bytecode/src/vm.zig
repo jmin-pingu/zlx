@@ -4,6 +4,8 @@ const Value = @import("value.zig").Value;
 const String = @import("value.zig").String;
 const Object = @import("value.zig").Object;
 const Function = @import("value.zig").Function;
+const NativeFunction = @import("value.zig").NativeFunction;
+const NativeFunctionType = @import("value.zig").NativeFunctionType;
 const OpCode = @import("chunk.zig").OpCode;
 const ArrayList = std.ArrayList;
 const print = std.debug.print;
@@ -13,6 +15,7 @@ const mode = @import("main.zig").mode;
 const Metadata = @import("gc.zig").Metadata;
 const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
+const c = @cImport(@cInclude("time.h"));
 
 const STACK_SIZE = FRAMES_MAX * std.math.maxInt(u8);
 const FRAMES_MAX = 64;
@@ -45,7 +48,7 @@ pub const CallFrame = struct {
     }
 
     pub fn getLine(self: Self, index: u8) usize {
-        return self.getChunk().line.decode(index);
+        return self.getChunk().getLine(index);
     }
 };
 
@@ -73,7 +76,7 @@ pub const VM = struct {
     const Self = @This();
 
     pub fn init(metadata: *Metadata, allocator: std.mem.Allocator) !Self {
-        return .{
+        var vm: VM = .{
             .chunk = undefined,
             .ip = undefined,
             .stack = stackBuffer[0..STACK_SIZE].ptr,
@@ -82,6 +85,8 @@ pub const VM = struct {
             .frames = frameBuffer,
             .frameCount = 0,
         };
+        try defineNative(&vm, "clock", clockNative, 0, allocator);
+        return vm;
     }
 
     pub fn interpret(self: *Self, compiler: *Compiler, source: []const u8, allocator: std.mem.Allocator) !InterpretResult {
@@ -312,11 +317,29 @@ pub const VM = struct {
         if (callee.isObject()) {
             switch (callee.Object.objectType) {
                 .Function => return try self.call(callee.Object.toObjectType(Function), nargs, allocator),
+                .NativeFunction => {
+                    // NOTE: nargs is defined; we need arity is the issue
+                    const native = callee.Object.toObjectType(NativeFunction);
+                    if (nargs != native.arity) {
+                        self.runtimeError("Expected {d} arguments but got {d}.\n", .{native.arity, nargs}) catch {};
+                        return false;
+                    }
+                    const result = native.nativeFn(self.stack - nargs);
+                    self.stack -= nargs + 1;
+                    self.push(result);
+                    return true;
+                },
                 else => {}
             }
         }
         self.runtimeError("Can only call functions and classes.\n", .{}) catch {};
         return false; 
+    }
+
+    fn defineNative(self: *Self, name: []const u8, function: NativeFunctionType, arity: usize, allocator: std.mem.Allocator) !void {
+        self.push(try Value.initNativeFunction(allocator, self.metadata, function, arity));
+        try self.globals.put(name, (self.stack-1)[0]);
+        _ = self.pop();
     }
 
     fn call(self: *Self, function: *Function, nargs: u8, allocator: std.mem.Allocator) !bool {
@@ -371,23 +394,18 @@ pub const VM = struct {
         const frame = self.frames[frameIdx];
         const function = frame.function;
         const instruction = frame.ip - function.chunk.code.items.ptr - 1;
-        std.debug.print("[line {d}] in ", .{try frame.getChunk().line.decode(instruction)});
+        std.debug.print("[line {d}] in ", .{try frame.getChunk().getLine(instruction)});
         if (function.name) |val| {
             std.debug.print("{s}\n", .{val.value});
         } else {
             std.debug.print("script\n", .{});
         }
     }
+
+    // Native Functions
+    fn clockNative(nargs: [*]Value) Value {
+        _ = nargs;
+        return Value.initNumber(@as(f64, @floatFromInt(c.clock())) / @as(f64, @floatFromInt(c.CLOCKS_PER_SEC)));
+    }
 };
 
-test "error handling" {
-
-}
-
-test "instruction functionality" {
-
-}
-
-test "call frame functionality" {
-
-}

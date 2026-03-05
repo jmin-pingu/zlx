@@ -3,7 +3,6 @@ const ArrayList = std.ArrayList;
 const EncodingError = @import("error.zig").EncodingError;
 const assert = std.debug.assert;
 
-
 pub const RLE = struct {
     line: ArrayList(usize), 
     num: ArrayList(usize), 
@@ -76,13 +75,22 @@ test "basic functionality" {
     const allocator = std.testing.allocator;
     var rle = RLE.init();
     defer rle.deinit(allocator);
-    try rle.encode(allocator, 0);
-    try rle.encode(allocator, 1);
-    try rle.encode(allocator, 2);
-    try rle.encode(allocator, 3);
-    rle.print();
+
+    for (0..3) |_| try rle.encode(allocator, 0);
+    for (0..2) |_| try rle.encode(allocator, 1);
+
+    try std.testing.expect(try rle.decode(0) == 0);
+    try std.testing.expect(try rle.decode(1) == 0);
+    try std.testing.expect(try rle.decode(2) == 0);
+    try std.testing.expect(try rle.decode(3) == 1);
+    try std.testing.expect(try rle.decode(4) == 1);
 }
 
 test "error cases" {
-
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+    try std.testing.expectError(EncodingError.OutOfIndex, rle.decode(0));
+    try std.testing.expectError(EncodingError.OutOfIndex, rle.decodeFirst(0));
 }
+

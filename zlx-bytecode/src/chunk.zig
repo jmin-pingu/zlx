@@ -56,9 +56,9 @@ pub const OpCode = enum(u8) {
 
         switch (self) {
             .OP_RETURN, .OP_NEGATE, .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_POP,
-            .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT, .OP_CALL => return self.simpleInstruction(offset),
+            .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT, => return self.simpleInstruction(offset),
             .OP_CONSTANT, .OP_SET_GLOBAL, .OP_GET_GLOBAL, .OP_DEFINE_GLOBAL => return self.constantInstruction(chunk, offset),
-            .OP_SET_LOCAL, .OP_GET_LOCAL => return self.byteInstruction(chunk, offset),
+            .OP_SET_LOCAL, .OP_GET_LOCAL, .OP_CALL => return self.byteInstruction(chunk, offset),
             .OP_CONSTANT_LONG => return self.constantInstructionLong(chunk, offset),
             .OP_JUMP, .OP_JUMP_IF_FALSE => return self.jumpInstruction(chunk, 1, offset),
             .OP_LOOP => return self.jumpInstruction(chunk, -1, offset),
@@ -91,7 +91,7 @@ pub const OpCode = enum(u8) {
         return offset + 1;
     }
 
-    fn constantInstruction(self: OpCode, chunk: *const Chunk, offset: usize) usize {
+    fn constantInstruction(self: OpCode, chunk: *const Chunk, offset: usize) !usize {
         const constantIndex: u8 = chunk.code.items[offset+1];
         const constant = chunk.getConstant(constantIndex) catch unreachable;
         print("{s} {d} `", .{ @tagName(self), constantIndex});
@@ -104,7 +104,8 @@ pub const OpCode = enum(u8) {
         const constantIndexSlice: []u8 = chunk.code.items[offset+1..offset+4];
         const index_ptr: *align(1) u24 = std.mem.bytesAsValue(u24, constantIndexSlice);
         const index: usize = @as(usize, index_ptr.*);
-        print("{s: <20} {d: <3} `{any}`\n", .{ @tagName(self), index, chunk.getConstant(index) catch unreachable });
+        const constant = chunk.getConstant(index) catch unreachable;
+        print("{s: <20} {d: <3} `{any}`\n", .{ @tagName(self), index, constant });
         return offset + 4;
     }
 };
@@ -122,7 +123,6 @@ pub const ValueArray = struct {
 
     pub fn get(self: ValueArray, index: usize) !Value {
         if (index >= self.values.items.len) {
-            print("{d}\n", .{index});
             return Error.OutOfIndex;
         }
         return self.values.items[index];
@@ -193,8 +193,8 @@ pub const Chunk = struct {
         self.code.deinit(allocator);
     }
 
-    pub fn getLine() void {
-        // TODO: implement
+    pub fn getLine(self: Chunk, index: usize) !usize {
+        return try self.line.decode(index);
     }
 
     pub fn disassemble(self: *const Chunk, name: []const u8) !void {
@@ -209,5 +209,3 @@ pub const Chunk = struct {
     }
 };
 
-// TODO: implement
-test "chunk" {}

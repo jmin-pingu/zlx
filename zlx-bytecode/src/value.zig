@@ -3,10 +3,12 @@ const Metadata = @import("gc.zig").Metadata;
 const debug = @import("error.zig").debug;
 const mode = @import("main.zig").mode;
 const Chunk = @import("chunk.zig").Chunk;
+const ArrayList = std.ArrayList;
 
 const ObjectType = enum {
     String,
-    Function
+    Function,
+    NativeFunction
 };
 
 pub const FunctionType = enum {
@@ -21,7 +23,7 @@ pub const Object = struct {
     
     pub fn toObjectType(self: *Object, comptime T: type) *T {
         switch (T) {
-            String, Function => {},
+            String, Function, NativeFunction => {},
             else => @compileError("Unsupported type")
         }
         return @ptrCast(@alignCast(self));
@@ -31,6 +33,7 @@ pub const Object = struct {
         switch (self.objectType) {
             .String => self.toObjectType(String).print(),
             .Function => self.toObjectType(Function).print(),
+            .NativeFunction => self.toObjectType(NativeFunction).print(),
         }
 
     }
@@ -42,6 +45,7 @@ pub const Object = struct {
             switch (obj.objectType) {
                 .String => obj.toObjectType(String).deinit(allocator),
                 .Function => obj.toObjectType(Function).deinit(allocator),
+                .NativeFunction => obj.toObjectType(NativeFunction).deinit(allocator),
             }
         }
     }
@@ -126,6 +130,44 @@ pub const Function = struct {
     }
 };
 
+pub const NativeFunctionType = *const fn ([*]Value) Value;
+pub const NativeFunction = struct {
+    object: Object,
+    nativeFn: NativeFunctionType,
+    arity: usize,
+
+    pub fn toObject(self: *NativeFunction) *Object {
+        return @ptrCast(@alignCast(self));
+    }
+
+    pub fn toValue(self: *NativeFunction) Value {
+        const obj: *Object = @ptrCast(@alignCast(self));
+        return Value{.Object = obj};
+    }
+
+    pub fn print(self: NativeFunction) void {
+        _ = self;
+        std.debug.print("<native_fn>", .{});
+    }
+    
+    pub fn initNativeFunction(allocator: std.mem.Allocator, metadata: *Metadata, nativeFn: NativeFunctionType, arity: usize) !*NativeFunction {
+        const native = try allocator.create(NativeFunction);
+        const chunkPtr = try allocator.create(Chunk);
+        chunkPtr.* = Chunk.init(allocator);
+        native.* = .{ 
+            .object = .{ .objectType = .NativeFunction, .next = metadata.allocations }, 
+            .arity = arity,
+            .nativeFn = nativeFn,
+        };
+        // NOTE: do I need to add to allocations?
+        return native;
+    }
+
+    pub fn deinit(self: *NativeFunction, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+};
+
 const ValueTag = enum {
     Bool,
     Number,
@@ -147,6 +189,13 @@ pub const Value = union(ValueTag) {
         const object = function.toObject();
         return .{ .Object = object };
     }
+
+    pub fn initNativeFunction(allocator: std.mem.Allocator, metadata: *Metadata, nativeFn: NativeFunctionType, arity: usize) !Value {
+        const native = try NativeFunction.initNativeFunction(allocator, metadata, nativeFn, arity);
+        const object = native.toObject();
+        return .{ .Object = object };
+    }
+
 
     pub fn initString(value: []const u8, metadata: *Metadata, allocator: std.mem.Allocator) !Value {
         if (metadata.retrieveString(value)) |object| {
@@ -205,6 +254,9 @@ pub const Value = union(ValueTag) {
                     .Function => {
                         return self.Object.toObjectType(Function) == other.Object.toObjectType(Function);
                     },
+                    .NativeFunction => {
+                        return self.Object.toObjectType(NativeFunction) == other.Object.toObjectType(NativeFunction);
+                    },
                 }
             },
             .Nil => true,
@@ -230,6 +282,7 @@ pub const Value = union(ValueTag) {
                             std.debug.print("<script>", .{});
                         }
                     },
+                    .NativeFunction => std.debug.print("<native_fn>", .{}),
                 }
             }
         }
@@ -251,7 +304,11 @@ pub const Value = union(ValueTag) {
 };
 
 test "values initialization" {
+    const Compiler = @import("compiler.zig").Compiler;
     const allocator = std.testing.allocator;
-    const s: Value = try Value.initString("test", null, allocator);
-    defer s.deinit(allocator);
+    const compiler = try allocator.create(Compiler);
+    const metadata = try allocator.create(Metadata);
+    metadata.* = Metadata.init(allocator); 
+    compiler.* = try Compiler.init(metadata, .Script, null, allocator);
+    defer metadata.trace(null);
 }

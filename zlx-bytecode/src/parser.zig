@@ -57,7 +57,3 @@ pub const Parser = struct {
     }
 };
 
-// TODO: implement
-test "basic parse" {
-
-}

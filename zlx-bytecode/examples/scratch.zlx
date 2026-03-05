@@ -1,7 +1,5 @@
-fun a() { return b(); }
-fun b() { return c(); }
-fun c() {
-  return 1;
+fun sum(b, c) {
+  return b + c;
 }
 
-print a();
+print 4 + sum(5, 6, 7);
