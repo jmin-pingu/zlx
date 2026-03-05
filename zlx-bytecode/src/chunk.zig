@@ -4,7 +4,7 @@ const ArrayList = std.ArrayList;
 const Value = @import("value.zig").Value;
 const RLE = @import("rle.zig").RLE;
 const print = std.debug.print;
-const Object = @import("value.zig").Object;
+const Object = @import("object.zig").Object;
 
 pub const OpCode = enum(u8) {
     OP_RETURN,

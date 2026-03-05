@@ -1,7 +1,8 @@
-const Object = @import("value.zig").Object;
-const Function = @import("value.zig").Function;
-const NativeFunction = @import("value.zig").NativeFunction;
-const String = @import("value.zig").String;
+const Object = @import("object.zig").Object;
+const Function = @import("object.zig").Function;
+const NativeFunction = @import("object.zig").NativeFunction;
+const String = @import("object.zig").String;
+
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 
