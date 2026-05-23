@@ -94,3 +94,31 @@ test "error cases" {
     try std.testing.expectError(EncodingError.OutOfIndex, rle.decodeFirst(0));
 }
 
+test "decodeFirst returns null for non-first in run" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+
+    for (0..3) |_| try rle.encode(allocator, 5);
+    try std.testing.expectEqual(@as(?usize, 5), try rle.decodeFirst(0));
+    try std.testing.expectEqual(@as(?usize, null), try rle.decodeFirst(1));
+    try std.testing.expectEqual(@as(?usize, null), try rle.decodeFirst(2));
+}
+
+test "rle consecutive different lines" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+
+    try rle.encode(allocator, 1);
+    try rle.encode(allocator, 2);
+    try rle.encode(allocator, 3);
+
+    try std.testing.expectEqual(@as(usize, 1), try rle.decode(0));
+    try std.testing.expectEqual(@as(usize, 2), try rle.decode(1));
+    try std.testing.expectEqual(@as(usize, 3), try rle.decode(2));
+    try std.testing.expectEqual(@as(?usize, 1), try rle.decodeFirst(0));
+    try std.testing.expectEqual(@as(?usize, 2), try rle.decodeFirst(1));
+    try std.testing.expectEqual(@as(?usize, 3), try rle.decodeFirst(2));
+}
+

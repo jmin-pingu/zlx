@@ -58,7 +58,7 @@ pub fn interpret(source: []const u8, allocator: std.mem.Allocator) !InterpretRes
     const compiler = try allocator.create(Compiler);
     const metadata = try allocator.create(Metadata);
     metadata.* = Metadata.init(allocator); 
-    compiler.* = try Compiler.init(metadata, .Script, null, allocator);
+    compiler.* = try Compiler.init(metadata, null, .Script, null, allocator);
     var vm = try VM.init(metadata, allocator);
     defer vm.deinit(allocator);
     defer metadata.trace(null);
@@ -88,5 +88,92 @@ pub fn runFile(path: []const u8, allocator: std.mem.Allocator) !void {
     }
 }
 
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("zlx_bytecode_lib");
+test "interpret arithmetic" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 1 + 2;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 10 - 3;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 2 * 3;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 10 / 2;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print -5;", allocator));
+}
+
+test "interpret boolean and nil" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print true;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print false;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print nil;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print !true;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print !false;", allocator));
+}
+
+test "interpret comparisons" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 1 < 2;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 2 > 1;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 1 == 1;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 1 != 2;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 1 <= 1;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print 2 >= 1;", allocator));
+}
+
+test "interpret strings" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print \"hello\";", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print \"hello\" + \" world\";", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("print \"\" == \"\";", allocator));
+}
+
+test "interpret global variables" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("var x = 1; print x;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("var x = 1; x = 2; print x;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("const c = 42; print c;", allocator));
+}
+
+test "interpret local variables" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("{ var x = 1; print x; }", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("{ var x = 1; x = 2; print x; }", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("{ var a = 1; var b = 2; print a + b; }", allocator));
+}
+
+test "interpret if statement" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("if (true) print 1;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("if (false) print 1; else print 2;", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret("if (1 < 2) print \"yes\"; else print \"no\";", allocator));
+}
+
+test "interpret while loop" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret(
+        "var i = 0; while (i < 3) { i = i + 1; } print i;", allocator));
+}
+
+test "interpret for loop" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret(
+        "for (var i = 0; i < 3; i = i + 1) { print i; }", allocator));
+}
+
+test "interpret function call" {
+    const allocator = std.heap.page_allocator;
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret(
+        "fun greet() { print \"hi\"; } greet();", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret(
+        "fun add(a, b) { return a + b; } print add(1, 2);", allocator));
+    try std.testing.expectEqual(.INTERPRET_OK, try interpret(
+        "fun fact(n) { if (n <= 1) return 1; return n * fact(n - 1); } print fact(5);", allocator));
+}
+
+test "interpret runtime error undefined variable" {
+    const allocator = std.heap.page_allocator;
+    const result = try interpret("print undefined_var;", allocator);
+    try std.testing.expectEqual(.INTERPRET_RUNTIME_ERROR, result);
+}
+
+test "interpret runtime error wrong arg count" {
+    const allocator = std.heap.page_allocator;
+    const result = try interpret("fun f(a) { return a; } f(1, 2);", allocator);
+    try std.testing.expectEqual(.INTERPRET_RUNTIME_ERROR, result);
+}

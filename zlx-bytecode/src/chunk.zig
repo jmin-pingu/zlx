@@ -5,6 +5,8 @@ const Value = @import("value.zig").Value;
 const RLE = @import("rle.zig").RLE;
 const print = std.debug.print;
 const Object = @import("object.zig").Object;
+const ObjectType = @import("object.zig").ObjectType;
+const Function = @import("object.zig").Function;
 
 pub const OpCode = enum(u8) {
     OP_RETURN,
@@ -40,15 +42,19 @@ pub const OpCode = enum(u8) {
     OP_SET_GLOBAL,
     OP_GET_LOCAL,
     OP_SET_LOCAL,    
+    // Closure Operators
+    OP_CLOSURE,
+    OP_GET_UPVALUE,
+    OP_SET_UPVALUE,
     _,
 
     pub fn asByte(self: OpCode) u8 {
         return @intFromEnum(self);
     }
 
-    pub fn disassemble(self: OpCode, chunk: *const Chunk, offset: usize, index: usize) !usize {
+    pub fn disassemble(self: OpCode, chunk: *const Chunk, offset: usize) !usize {
         print("0x{x:0>4} ", .{offset});
-        if (try chunk.line.decodeFirst(index)) |line| {
+        if (try chunk.line.decodeFirst(offset)) |line| {
             print(" {d:>4} ", .{ line });
         } else {
             print("    | ", .{});
@@ -58,15 +64,45 @@ pub const OpCode = enum(u8) {
             .OP_RETURN, .OP_NEGATE, .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_POP,
             .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT, => return self.simpleInstruction(offset),
             .OP_CONSTANT, .OP_SET_GLOBAL, .OP_GET_GLOBAL, .OP_DEFINE_GLOBAL => return self.constantInstruction(chunk, offset),
-            .OP_SET_LOCAL, .OP_GET_LOCAL, .OP_CALL => return self.byteInstruction(chunk, offset),
+            .OP_SET_LOCAL, .OP_GET_LOCAL, .OP_CALL, .OP_GET_UPVALUE, .OP_SET_UPVALUE => return self.byteInstruction(chunk, offset),
             .OP_CONSTANT_LONG => return self.constantInstructionLong(chunk, offset),
             .OP_JUMP, .OP_JUMP_IF_FALSE => return self.jumpInstruction(chunk, 1, offset),
             .OP_LOOP => return self.jumpInstruction(chunk, -1, offset),
+            .OP_CLOSURE => return self.closureInstruction(chunk, offset),
             else => |opCode| {
                 print("Unknown opcode {any}\n", .{ opCode });
                 return offset + 1;
             },
         }
+    }
+
+    fn closureInstruction(self: OpCode, chunk: *const Chunk, offset: usize) !usize {
+        var ptr = offset + 1;
+        const constantIndex: u8 = chunk.code.items[ptr];
+        ptr += 1;
+
+        const constant = chunk.getConstant(constantIndex) catch unreachable;
+        print("{s} {d} `", .{ @tagName(self), constantIndex});
+        constant.print();
+        print("`\n", .{});
+
+        if (!constant.isObjectType(ObjectType.Function)) {
+            return error.TODO;
+        }
+
+        const function = Object.toObjectType(constant.Object, Function);
+        for (0..function.upvalueCount) |_| {
+            const isLocal = chunk.code.items[ptr];
+            ptr += 1;
+            const index = chunk.code.items[ptr];
+            ptr += 1;
+
+            print(
+                "0x{x:0>4}     | {s} {d}\n", 
+                .{ptr-2, if (isLocal != 0) "local" else "upvalue", index}
+            );
+        }
+        return ptr;
     }
 
     fn jumpInstruction(self: OpCode, chunk: *const Chunk, sign: i64, offset: usize) usize {
@@ -200,12 +236,55 @@ pub const Chunk = struct {
     pub fn disassemble(self: *const Chunk, name: []const u8) !void {
         print("=== chunk: {s} ===\n", .{ name });
         var offset: usize = 0;
-        var idx: usize = 0;
         while (offset < self.code.items.len) {
             const opCode: OpCode = @enumFromInt(self.code.items[offset]);
-            offset = try opCode.disassemble(self, offset, idx);
-            idx += 1;
+            offset = try opCode.disassemble(self, offset);
         }
     }
 };
 
+const testing = std.testing;
+
+test "chunk write and getLine" {
+    const allocator = std.heap.page_allocator;
+    var chunk = Chunk.init(allocator);
+
+    try chunk.write(@intFromEnum(OpCode.OP_NIL), 1, allocator);
+    try chunk.write(@intFromEnum(OpCode.OP_NIL), 1, allocator);
+    try chunk.write(@intFromEnum(OpCode.OP_RETURN), 2, allocator);
+
+    try testing.expectEqual(@as(usize, 1), try chunk.getLine(0));
+    try testing.expectEqual(@as(usize, 1), try chunk.getLine(1));
+    try testing.expectEqual(@as(usize, 2), try chunk.getLine(2));
+}
+
+test "chunk add and get constant" {
+    const allocator = std.heap.page_allocator;
+    var chunk = Chunk.init(allocator);
+
+    const idx1 = try chunk.addConstant(Value.initNumber(42.0), allocator);
+    const idx2 = try chunk.addConstant(Value.initNumber(1.0), allocator);
+
+    try testing.expectEqual(@as(u8, 0), idx1);
+    try testing.expectEqual(@as(u8, 1), idx2);
+    try testing.expectEqual(@as(f64, 42.0), (try chunk.getConstant(0)).Number);
+    try testing.expectEqual(@as(f64, 1.0), (try chunk.getConstant(1)).Number);
+}
+
+test "chunk indexing helpers" {
+    const allocator = std.heap.page_allocator;
+    var chunk = Chunk.init(allocator);
+
+    try testing.expectEqual(@as(usize, 0), chunk.indexOfNextInstruction());
+    try chunk.write(@intFromEnum(OpCode.OP_NIL), 1, allocator);
+    try testing.expectEqual(@as(usize, 1), chunk.indexOfNextInstruction());
+    try testing.expectEqual(@as(usize, 0), chunk.indexOfLatestInstruction());
+    try chunk.write(@intFromEnum(OpCode.OP_RETURN), 1, allocator);
+    try testing.expectEqual(@as(usize, 1), chunk.indexOfLatestInstruction());
+}
+
+test "chunk getConstant out of bounds" {
+    const allocator = std.heap.page_allocator;
+    var chunk = Chunk.init(allocator);
+    try testing.expectError(error.OutOfIndex, chunk.getConstant(0));
+}

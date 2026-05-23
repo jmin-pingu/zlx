@@ -8,6 +8,8 @@ const ObjectType = @import("object.zig").ObjectType;
 const Function = @import("object.zig").Function;
 const NativeFunctionType = @import("object.zig").NativeFunctionType;
 const NativeFunction = @import("object.zig").NativeFunction;
+const Closure = @import("object.zig").Closure;
+const Upvalue = @import("object.zig").Upvalue;
 const String = @import("object.zig").String;
 const ArrayList = std.ArrayList;
 
@@ -33,12 +35,16 @@ pub const Value = union(ValueTag) {
         return .{ .Object = object };
     }
 
+    pub fn initClosure(closure: *Closure) !Value {
+        const object = closure.toObject();
+        return .{ .Object = object };
+    }
+
     pub fn initNativeFunction(allocator: std.mem.Allocator, metadata: *Metadata, nativeFn: NativeFunctionType, arity: usize) !Value {
         const native = try NativeFunction.initNativeFunction(allocator, metadata, nativeFn, arity);
         const object = native.toObject();
         return .{ .Object = object };
     }
-
 
     pub fn initString(value: []const u8, metadata: *Metadata, allocator: std.mem.Allocator) !Value {
         if (metadata.retrieveString(value)) |object| {
@@ -100,6 +106,12 @@ pub const Value = union(ValueTag) {
                     .NativeFunction => {
                         return self.Object.toObjectType(NativeFunction) == other.Object.toObjectType(NativeFunction);
                     },
+                    .Closure => {
+                        return self.Object.toObjectType(Closure) == other.Object.toObjectType(Closure);
+                    },
+                    .Upvalue => {
+                        return self.Object.toObjectType(Upvalue) == other.Object.toObjectType(Upvalue);
+                    },
                 }
             },
             .Nil => true,
@@ -126,6 +138,22 @@ pub const Value = union(ValueTag) {
                         }
                     },
                     .NativeFunction => std.debug.print("<native_fn>", .{}),
+                    .Closure => {
+                        const closure: *Closure = self.Object.toObjectType(Closure);
+                        
+                        if (closure.function.name) |name| {
+                            std.debug.print("<closure {s}>", .{name.value});
+                        } else {
+                            // NOTE: silent error
+                            return;
+                        }
+                    },
+                    .Upvalue => {
+                        const upvalue: *Upvalue = self.Object.toObjectType(Upvalue);
+                        // TODO: not sure what value we need to print here?
+                        std.debug.print("<upvalue> ", .{});
+                        upvalue.location.print();
+                    }
                 }
             }
         }
@@ -148,10 +176,45 @@ pub const Value = union(ValueTag) {
 
 test "values initialization" {
     const Compiler = @import("compiler.zig").Compiler;
-    const allocator = std.testing.allocator;
+    const allocator = std.heap.page_allocator;
     const compiler = try allocator.create(Compiler);
     const metadata = try allocator.create(Metadata);
-    metadata.* = Metadata.init(allocator); 
-    compiler.* = try Compiler.init(metadata, .Script, null, allocator);
+    metadata.* = Metadata.init(allocator);
+    compiler.* = try Compiler.init(metadata, null, .Script, null, allocator);
     defer metadata.trace(null);
+}
+
+test "value isFalsey" {
+    try std.testing.expect(Value.initNil().isFalsey());
+    try std.testing.expect(Value.initBool(false).isFalsey());
+    try std.testing.expect(!Value.initBool(true).isFalsey());
+    try std.testing.expect(!Value.initNumber(0.0).isFalsey());
+    try std.testing.expect(!Value.initNumber(1.0).isFalsey());
+}
+
+test "value isEqual primitives" {
+    const n1 = Value.initNumber(42.0);
+    const n2 = Value.initNumber(42.0);
+    const n3 = Value.initNumber(1.0);
+    try std.testing.expect(n1.isEqual(&n2));
+    try std.testing.expect(!n1.isEqual(&n3));
+
+    const t = Value.initBool(true);
+    const f = Value.initBool(false);
+    try std.testing.expect(t.isEqual(&t));
+    try std.testing.expect(!t.isEqual(&f));
+
+    const nil1 = Value.initNil();
+    const nil2 = Value.initNil();
+    try std.testing.expect(nil1.isEqual(&nil2));
+
+    try std.testing.expect(!n1.isEqual(&t));
+    try std.testing.expect(!nil1.isEqual(&f));
+}
+
+test "value isValueTag" {
+    try std.testing.expect(Value.initNumber(1.0).isValueTag(.Number));
+    try std.testing.expect(Value.initBool(true).isValueTag(.Bool));
+    try std.testing.expect(Value.initNil().isValueTag(.Nil));
+    try std.testing.expect(!Value.initNumber(1.0).isValueTag(.Bool));
 }

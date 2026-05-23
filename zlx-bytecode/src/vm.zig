@@ -4,6 +4,8 @@ const Value = @import("value.zig").Value;
 const Object = @import("object.zig").Object;
 const String = @import("object.zig").String;
 const Function = @import("object.zig").Function;
+const Closure = @import("object.zig").Closure;
+const Upvalue = @import("object.zig").Upvalue;
 const NativeFunction = @import("object.zig").NativeFunction;
 const NativeFunctionType = @import("object.zig").NativeFunctionType;
 const OpCode = @import("chunk.zig").OpCode;
@@ -20,6 +22,7 @@ const c = @cImport(@cInclude("time.h"));
 const STACK_SIZE = FRAMES_MAX * std.math.maxInt(u8);
 const FRAMES_MAX = 64;
 
+// TODO: there is something wrong with the frame buffer logic
 pub const InterpretResult = enum {
     INTERPRET_OK, 
     INTERPRET_COMPILE_ERROR, 
@@ -27,16 +30,16 @@ pub const InterpretResult = enum {
 };
 
 pub const CallFrame = struct {
-    function: *Function,
+    closure: *Closure,
     ip: [*]u8,
     slots: [*]Value,
     slotsBase: [*]Value,
 
     const Self = @This();
 
-    pub fn init(function: *Function, ip: [*]u8, slots: [*]Value) Self {
+    pub fn init(closure: *Closure, ip: [*]u8, slots: [*]Value) Self {
         return .{
-            .function=function,
+            .closure=closure,
             .ip=ip,
             .slots=slots, 
             .slotsBase=slots, 
@@ -44,7 +47,7 @@ pub const CallFrame = struct {
     }
 
     pub fn getChunk(self: Self) *Chunk {
-        return self.function.chunk;
+        return self.closure.function.chunk;
     }
 
     pub fn getLine(self: Self, index: u8) usize {
@@ -94,17 +97,10 @@ pub const VM = struct {
             std.debug.print("vm: compile error {any}\n", .{err});
             return .INTERPRET_COMPILE_ERROR;
         };
+        const closure = try Closure.initClosure(allocator, self.metadata, function);
+        self.push(closure.toValue());
+        _ = try self.call(closure, 0, allocator);
 
-        self.push(function.toValue());
-        _ = try self.call(function, 0, allocator);
-
-        if (mode == .Debug) {
-            if (function.name) |name| {
-                try function.chunk.disassemble(name.value);
-            } else {
-                try function.chunk.disassemble("<script>");
-            }
-        }
         return self.run(allocator);
     }
 
@@ -170,7 +166,7 @@ pub const VM = struct {
         const frame = self.currentFrame();
 
         print("=== stack: ", .{});
-        frame.function.print();
+        frame.closure.print();
         print(" ===\n[ \n", .{});
 
         var base: [*]Value = frame.slotsBase;
@@ -189,11 +185,7 @@ pub const VM = struct {
             const instruction: OpCode = @enumFromInt(self.readByte());
             if (mode == .Debug) {
                 self.disassembleStack();
-                _ = try instruction.disassemble(
-                    frame.getChunk(), 
-                    offset,
-                    offset
-                );
+                _ = try instruction.disassemble(frame.getChunk(), offset);
             }
 
             switch (instruction) {
@@ -305,6 +297,30 @@ pub const VM = struct {
                     }
                     frame = self.frames[self.frameCount-1];
                 },
+                .OP_CLOSURE => {
+                    const constant = try self.readConstant();
+                    const function = constant.Object.toObjectType(Function);
+                    const closure = try Closure.initClosure(allocator, self.metadata, function);
+                    self.push(try Value.initClosure(closure));
+                    for (0..closure.upvalueCount) |n| {
+                        const isLocal = self.readByte();
+                        const index = self.readByte();
+                        if (isLocal != 0) {
+                            closure.upvalues[n] = try self.captureUpvalue(allocator, &(frame.slots + index)[0]);
+                        } else {
+                            frame.closure.print();
+                            closure.upvalues[n] = frame.closure.upvalues[index];
+                        }
+                    }
+                },
+                .OP_GET_UPVALUE => {
+                    const slot = self.readByte();
+                    self.push(frame.closure.upvalues[slot].location.*);
+                },
+                .OP_SET_UPVALUE => {
+                    const slot = self.readByte();
+                    frame.closure.upvalues[slot].location = &self.peek(0);
+                },
                 else => {
                     return .INTERPRET_COMPILE_ERROR;
                 }
@@ -313,10 +329,19 @@ pub const VM = struct {
         return undefined;
     }
 
+    fn captureUpvalue(self: *Self, allocator: std.mem.Allocator, local: *const Value) !*Upvalue {
+        std.debug.print("capturedUpvalue", .{});
+        local.print();
+        std.debug.print("\n", .{});
+        const createdUpvalue =  try Upvalue.initUpvalue(allocator, self.metadata, local);
+        return createdUpvalue;
+    }
+
     fn callValue(self: *Self, callee: Value, nargs: u8, allocator: std.mem.Allocator) !bool {
         if (callee.isObject()) {
             switch (callee.Object.objectType) {
-                .Function => return try self.call(callee.Object.toObjectType(Function), nargs, allocator),
+                .Closure => return try self.call(callee.Object.toObjectType(Closure), nargs, allocator),
+                // .Function => return try self.call(callee.Object.toObjectType(Function), nargs, allocator),
                 .NativeFunction => {
                     // NOTE: nargs is defined; we need arity is the issue
                     const native = callee.Object.toObjectType(NativeFunction);
@@ -342,9 +367,9 @@ pub const VM = struct {
         _ = self.pop();
     }
 
-    fn call(self: *Self, function: *Function, nargs: u8, allocator: std.mem.Allocator) !bool {
-        if (nargs != function.arity) {
-            self.runtimeError("Expected {d} arguments but got {d}.\n", .{function.arity, nargs}) catch {};
+    fn call(self: *Self, closure: *Closure, nargs: u8, allocator: std.mem.Allocator) !bool {
+        if (nargs != closure.function.arity) {
+            self.runtimeError("Expected {d} arguments but got {d}.\n", .{closure.function.arity, nargs}) catch {};
             return false;
         }
 
@@ -355,8 +380,8 @@ pub const VM = struct {
 
         const frame = try allocator.create(CallFrame);
         frame.* = CallFrame.init(
-            function, 
-            function.chunk.getInstructionBasePointer(), 
+            closure, 
+            closure.function.chunk.getInstructionBasePointer(), 
             self.stack - nargs - 1
         );
         self.frames[self.frameCount] = frame;
@@ -392,10 +417,10 @@ pub const VM = struct {
 
     fn printRuntimeError(self: *Self, frameIdx: usize) !void {
         const frame = self.frames[frameIdx];
-        const function = frame.function;
-        const instruction = frame.ip - function.chunk.code.items.ptr - 1;
+        const closure = frame.closure;
+        const instruction = frame.ip - frame.getChunk().code.items.ptr - 1;
         std.debug.print("[line {d}] in ", .{try frame.getChunk().getLine(instruction)});
-        if (function.name) |val| {
+        if (closure.function.name) |val| {
             std.debug.print("{s}\n", .{val.value});
         } else {
             std.debug.print("script\n", .{});

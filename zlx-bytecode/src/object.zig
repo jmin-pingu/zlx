@@ -9,7 +9,9 @@ const ArrayList = std.ArrayList;
 pub const ObjectType = enum {
     String,
     Function,
-    NativeFunction
+    NativeFunction,
+    Closure,
+    Upvalue
 };
 
 pub const FunctionType = enum {
@@ -24,7 +26,7 @@ pub const Object = struct {
     
     pub fn toObjectType(self: *Object, comptime T: type) *T {
         switch (T) {
-            String, Function, NativeFunction => {},
+            String, Function, NativeFunction, Closure, Upvalue => {},
             else => @compileError("Unsupported type")
         }
         return @ptrCast(@alignCast(self));
@@ -34,7 +36,9 @@ pub const Object = struct {
         switch (self.objectType) {
             .String => self.toObjectType(String).print(),
             .Function => self.toObjectType(Function).print(),
+            .Closure => self.toObjectType(Closure).print(),
             .NativeFunction => self.toObjectType(NativeFunction).print(),
+            .Upvalue => self.toObjectType(Upvalue).print(),
         }
 
     }
@@ -46,7 +50,9 @@ pub const Object = struct {
             switch (obj.objectType) {
                 .String => obj.toObjectType(String).deinit(allocator),
                 .Function => obj.toObjectType(Function).deinit(allocator),
+                .Closure => obj.toObjectType(Closure).deinit(allocator),
                 .NativeFunction => obj.toObjectType(NativeFunction).deinit(allocator),
+                .Upvalue => obj.toObjectType(Upvalue).deinit(allocator),
             }
         }
     }
@@ -83,9 +89,54 @@ pub const String = struct {
     }
 };
 
+pub const Closure = struct {
+    object: Object,
+    function: *Function,
+    upvalues: []*Upvalue,
+    upvalueCount: usize,
+
+    pub fn toObject(self: *Closure) *Object {
+        return @ptrCast(@alignCast(self));
+    }
+
+    pub fn toValue(self: *Closure) Value {
+        const obj: *Object = @ptrCast(@alignCast(self));
+        return Value{.Object = obj};
+    }
+
+    pub fn print(self: Closure) void {
+        self.function.print();
+    }
+    
+    pub fn initClosure(allocator: std.mem.Allocator, metadata: *Metadata, function: *Function) !*Closure {
+        const closure = try allocator.create(Closure);
+        const upvalues = try allocator.alloc(*Upvalue, function.upvalueCount);
+        for (0..upvalues.len) |n| {
+            upvalues[n] = undefined;
+        }
+
+        closure.* = .{ 
+            .object = .{ .objectType = .Closure, .next = metadata.allocations }, 
+            .function = function, 
+            .upvalues = upvalues,
+            .upvalueCount = function.upvalueCount,
+        };
+        // NOTE: do I need to add to allocations?
+        return closure;
+    }
+
+    pub fn deinit(self: *Closure, allocator: std.mem.Allocator) void {
+        // NOTE: only free the closure, not the function. 
+        // There can be many closures over a function
+        allocator.free(self.upvalues);
+        self.deinit(allocator);
+    }
+};
+
 pub const Function = struct {
     object: Object,
     arity: usize,
+    upvalueCount: u8,
     chunk: *Chunk,
     name: ?*String,
 
@@ -117,6 +168,7 @@ pub const Function = struct {
         function.* = .{ 
             .object = .{ .objectType = .Function, .next = metadata.allocations }, 
             .arity = 0, 
+            .upvalueCount = 0, 
             .chunk = chunkPtr, 
             .name = name
         };
@@ -168,4 +220,37 @@ pub const NativeFunction = struct {
         allocator.destroy(self);
     }
 };
+
+pub const Upvalue = struct {
+    object: Object,
+    location: *const Value,
+
+    pub fn toObject(self: *Upvalue) *Object {
+        return @ptrCast(@alignCast(self));
+    }
+
+    pub fn toValue(self: *Upvalue) Value {
+        const obj: *Object = @ptrCast(@alignCast(self));
+        return Value{.Object = obj};
+    }
+
+    pub fn print(self: Upvalue) void {
+        _ = self;
+        std.debug.print("<upvalue>", .{});
+    }
+    
+    pub fn initUpvalue(allocator: std.mem.Allocator, metadata: *Metadata, slot: *const Value) !*Upvalue {
+        const upvalue = try allocator.create(Upvalue);
+        upvalue.* = .{ 
+            .object = .{ .objectType = .Upvalue, .next = metadata.allocations }, 
+            .location = slot
+        };
+        return upvalue;
+    }
+
+    pub fn deinit(self: *Upvalue, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+};
+
 

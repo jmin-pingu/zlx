@@ -15,6 +15,7 @@ const debug = @import("error.zig").debug;
 const assert = std.debug.assert;
 const mode = @import("main.zig").mode;
 const Metadata = @import("gc.zig").Metadata;
+const Decrementer = @import("utils.zig").Decrementer;
 
 // TODO: need better error handling for this entire project
 const Precedence = enum {
@@ -32,11 +33,13 @@ const Precedence = enum {
 };
 
 pub const Compiler = struct {
+    enclosing: ?*Compiler,
     parser: *Parser, 
     metadata: *Metadata,
     function: *Function,
     functionType: FunctionType,
     locals: [std.math.maxInt(u8)+1]Local,
+    upvalues: [std.math.maxInt(u8)+1]Upvalue,
     localCount: u8,
     scopeDepth: u8,
     currentLoop: ?usize,
@@ -61,6 +64,11 @@ pub const Compiler = struct {
         name: Token,
         depth: ?u8,
         mutable: bool,
+    };
+
+    const Upvalue = struct {
+        index: u8,
+        isLocal: bool,
     };
 
     // Parse Table for Pratt's Top Down Parsing Algorithm
@@ -114,13 +122,22 @@ pub const Compiler = struct {
         }
     );
 
-    pub fn init(metadata: *Metadata, ftype: FunctionType, maybeParser: ?*Parser, allocator: std.mem.Allocator) !Self {
-        const initLocal = Local{
+    // NOTE: this is what needs to be done.
+    // 1) during compiler initialization, we need to specify whether the new compiler encloses the existing one
+    // 2) when we're done with the compiler, we need to somehow use the enclosed compiler for remaining calls.
+    pub fn init(metadata: *Metadata, enclosed: ?*Compiler, ftype: FunctionType, maybeParser: ?*Parser, allocator: std.mem.Allocator) !Self {
+        const initLocal = Local {
             .depth=0,
             .name=Token.init(.IDENTIFIER, "", 0),
             .mutable=false,
         };
+
+        const initUpvalue = Upvalue {
+            .index=0,
+            .isLocal=false,
+        };
         const locals = [1]Local{initLocal} ++ [_]Local{undefined} ** (std.math.maxInt(u8));
+        const upvalues = [1]Upvalue{initUpvalue} ++ [_]Upvalue{undefined} ** (std.math.maxInt(u8));
         const name = switch(ftype) {
             .Function => out: {
                 if (maybeParser) |parser| {
@@ -141,11 +158,13 @@ pub const Compiler = struct {
             },
             .metadata = metadata, 
             .locals = locals,
+            .upvalues = upvalues,
             .localCount = 1,
             .scopeDepth = 0,
             .currentLoop = null,
             .function = try Function.initFunction(allocator, metadata, name),
             .functionType = ftype,
+            .enclosing = enclosed,
         };
     }
 
@@ -166,8 +185,19 @@ pub const Compiler = struct {
 
     pub fn endCompiler(self: *Self, allocator: std.mem.Allocator) !*Function {
         try self.emitReturn(allocator);
-        // NOTE: need to disassemble 
-        return self.function;
+        const function = self.function;
+        if (self.enclosing) |enclosing| {
+            self.* = enclosing.*;
+        } 
+
+        if (mode == .Debug) {
+            if (function.name) |name| {
+                function.chunk.disassemble(name.value) catch unreachable;
+            } else {
+                function.chunk.disassemble("<script>") catch unreachable;
+            }
+        }
+        return function;
     }
 
     fn declaration(self: *Self, allocator: std.mem.Allocator) ParseError!void {
@@ -213,37 +243,41 @@ pub const Compiler = struct {
     }
 
     fn compileFunction(self: *Self, ftype: FunctionType, allocator: std.mem.Allocator) !void {
-        const nestedCompiler = try allocator.create(Compiler);
-        defer allocator.destroy(nestedCompiler);
-        nestedCompiler.* = try Compiler.init(self.metadata, ftype, self.parser, allocator);
-        nestedCompiler.beginScope();
-
-        try nestedCompiler.parser.consume(.LEFT_PAREN, ParseError.ExpectLeftParenthesisAfterFnName);
-        if (!nestedCompiler.check(.RIGHT_PAREN)) {
+        const fnLine = self.parser.previous.line;
+        const enclosed = try allocator.create(Compiler);
+        defer allocator.destroy(enclosed);
+        // NOTE:
+        enclosed.* = try Compiler.init(self.metadata, self, ftype, self.parser, allocator);
+        enclosed.beginScope();
+        try enclosed.parser.consume(.LEFT_PAREN, ParseError.ExpectLeftParenthesisAfterFnName);
+        if (!enclosed.check(.RIGHT_PAREN)) {
             while (true) {
-                nestedCompiler.function.arity += 1;
-                if (nestedCompiler.function.arity > 255) {
-                    try errorAt(&nestedCompiler.parser.current, ParseError.FunctionParameterOverflow);
+                enclosed.function.arity += 1;
+                if (enclosed.function.arity > 255) {
+                    try errorAt(&enclosed.parser.current, ParseError.FunctionParameterOverflow);
                 }
-                const constant = try nestedCompiler.parseVariable(allocator, false);
-                try nestedCompiler.defineVariable(constant, allocator);
-                if (!(try nestedCompiler.match(.COMMA))) {
+                const constant = try enclosed.parseVariable(allocator, false);
+                try enclosed.defineVariable(constant, allocator);
+                if (!(try enclosed.match(.COMMA))) {
                     break;
                 }
             }
-
         }
-        try nestedCompiler.parser.consume(.RIGHT_PAREN, ParseError.ExpectRightParenthesisAfterFnName);
+        try enclosed.parser.consume(.RIGHT_PAREN, ParseError.ExpectRightParenthesisAfterFnName);
 
-        try nestedCompiler.parser.consume(.LEFT_BRACE, ParseError.ExpectLeftBraceAfterFnBody);
-        try nestedCompiler.block(allocator);
+        try enclosed.parser.consume(.LEFT_BRACE, ParseError.ExpectLeftBraceAfterFnBody);
+        try enclosed.block(allocator);
 
-        const function = try nestedCompiler.endCompiler(allocator);
-        try self.emitBytes(
-            @intFromEnum(OpCode.OP_CONSTANT), 
-            try self.makeConstant(try Value.initFunction(function), allocator), 
-            allocator
-        );
+        const savedUpvalues = enclosed.upvalues;
+        const function = try enclosed.endCompiler(allocator);
+        const constantIdx = try self.makeConstant(try Value.initFunction(function), allocator);
+        self.currentChunk().write(@intFromEnum(OpCode.OP_CLOSURE), fnLine, allocator) catch return ParseError.ChunkWriteError;
+        self.currentChunk().write(constantIdx, fnLine, allocator) catch return ParseError.ChunkWriteError;
+
+        for (0..function.upvalueCount) |n| {
+            try self.emitByte(if (savedUpvalues[n].isLocal) 1 else 0, allocator);
+            try self.emitByte(savedUpvalues[n].index, allocator);
+        }
     }
 
     fn printLocals(self: Self) void {
@@ -730,16 +764,20 @@ pub const Compiler = struct {
         var isVar = true;
         const local = try self.resolveLocal(name);
 
-        if (local == null) {
-            arg = try self.identifierConstant(name.token, allocator);
-            isVar = !self.metadata.isGlobalConst(name.token);
-            getOp = .OP_GET_GLOBAL;
-            setOp = .OP_SET_GLOBAL;
-        } else {
+        if (local != null) {
             arg = local.?.index;
             isVar = local.?.mutable;
             getOp = .OP_GET_LOCAL;
             setOp = .OP_SET_LOCAL;
+        } else if (try self.resolveUpvalue(name)) |idx| {
+            arg = idx;
+            getOp = .OP_GET_UPVALUE;
+            setOp = .OP_SET_UPVALUE;
+        } else {
+            arg = try self.identifierConstant(name.token, allocator);
+            isVar = !self.metadata.isGlobalConst(name.token);
+            getOp = .OP_GET_GLOBAL;
+            setOp = .OP_SET_GLOBAL;
         }
 
         if (canAssign and try self.match(.EQUAL)) {
@@ -752,6 +790,42 @@ pub const Compiler = struct {
         } else {
             try self.emitBytes(@intFromEnum(getOp), arg, allocator);
         }
+    }
+
+    fn resolveUpvalue(self: *Self, name: Token) !?u8 {
+        if (self.enclosing) |enclosed| {
+            const maybeLocal = try enclosed.resolveLocal(name);
+            if (maybeLocal) |local| {
+                return try self.addUpvalue(local.index, true);
+            }
+
+            const maybeUpvalue = try enclosed.resolveUpvalue(name);
+
+            if (maybeUpvalue) |upvalue| {
+                return try self.addUpvalue(upvalue, false);
+            }
+        } 
+        return null;
+    }
+
+    fn addUpvalue(self: *Self, index: u8, isLocal: bool) !u8 {
+        const upvalueCount = self.function.upvalueCount;
+
+        for (0..upvalueCount) |n| {
+            const upvalue = self.upvalues[n];
+            if (upvalue.index == index and upvalue.isLocal == isLocal) {
+                return @intCast(n);
+            }
+        }
+
+        if (upvalueCount == std.math.maxInt(u8)+1) {
+            return ParseError.ClosureVariableOverflow;
+        }
+ 
+        defer self.function.upvalueCount += 1;
+        self.upvalues[upvalueCount].isLocal = isLocal;
+        self.upvalues[upvalueCount].index = index;
+        return upvalueCount;
     }
 
     fn resolveLocal(self: *Self, name: Token) !?struct { index: u8, mutable: bool } {
@@ -832,24 +906,4 @@ fn enumMax(@"type": type) comptime_int {
         else => @compileError("The provided type was not an enum."),
     }
 }
-
-const Decrementer = struct {
-    start: i64, 
-    end: i64, 
-    step: i64,
-    const Self = @This();
-
-    pub fn init(start: i64, end: i64, step: i64) Self {
-        return .{ .start = start, .end = end, .step = step };
-    }
-
-    pub fn next(self: *Self) ?i64 {
-        self.start += self.step; 
-        if (self.start >= self.end) {
-            return self.start; 
-        } else {
-            return null;
-        }
-    }
-};
 

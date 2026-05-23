@@ -60,7 +60,13 @@ pub const Metadata = struct {
                 },
                 .NativeFunction => {
                     std.debug.print("`<native_fn>` -> ", .{});
-                }
+                },
+                .Closure => {
+                    std.debug.print("`<closure>` -> ", .{});
+                },
+                .Upvalue => {
+                    std.debug.print("`<upvalue>` -> ", .{});
+                },
             }
             n += 1;
             curr = obj.next;
@@ -69,3 +75,36 @@ pub const Metadata = struct {
     }
 };
 
+test "metadata global tracking" {
+    const allocator = std.testing.allocator;
+    var meta = Metadata.init(allocator);
+    defer meta.identifiers.deinit();
+    defer meta.interned.deinit();
+
+    try std.testing.expect(!meta.isGlobal("x"));
+    try std.testing.expect(!meta.isGlobalConst("x"));
+
+    try meta.addGlobal("x", true);
+    try std.testing.expect(meta.isGlobal("x"));
+    try std.testing.expect(!meta.isGlobalConst("x"));
+
+    try meta.addGlobal("y", false);
+    try std.testing.expect(meta.isGlobal("y"));
+    try std.testing.expect(meta.isGlobalConst("y"));
+}
+
+test "metadata string interning" {
+    const allocator = std.testing.allocator;
+    var meta = Metadata.init(allocator);
+    defer meta.identifiers.deinit();
+    defer meta.interned.deinit();
+
+    const obj = try allocator.create(Object);
+    defer allocator.destroy(obj);
+    obj.* = .{ .objectType = .String, .next = null };
+
+    try std.testing.expect(meta.retrieveString("hello") == null);
+    try meta.setString("hello", obj);
+    try std.testing.expect(meta.retrieveString("hello") == obj);
+    try std.testing.expect(meta.retrieveString("world") == null);
+}
