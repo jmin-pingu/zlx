@@ -70,6 +70,8 @@ pub const VM = struct {
     frameCount: usize,
     /// TODO: add description
     metadata: *Metadata,
+    /// TODO: add description
+    openUpvalues: ?*Upvalue,
 
     /// TODO: add description
     var stackBuffer: [STACK_SIZE]Value = [_]Value{undefined} ** STACK_SIZE;
@@ -87,6 +89,7 @@ pub const VM = struct {
             .globals = StringHashMap(Value).init(allocator),
             .frames = frameBuffer,
             .frameCount = 0,
+            .openUpvalues = null,
         };
         try defineNative(&vm, "clock", clockNative, 0, allocator);
         return vm;
@@ -244,6 +247,7 @@ pub const VM = struct {
                 },
                 .OP_RETURN => { 
                     const result = self.pop();
+                    self.closeUpvalues(&frame.slots[0]);
                     self.frameCount -= 1;
                     if (self.frameCount == 0) {
                         _ = self.pop();
@@ -321,6 +325,10 @@ pub const VM = struct {
                     const slot = self.readByte();
                     frame.closure.upvalues[slot].location = &self.peek(0);
                 },
+                .OP_CLOSE_UPVALUE => {
+                    self.closeUpvalues(&(self.stack - 1)[0]);
+                    _ = self.pop();
+                },
                 else => {
                     return .INTERPRET_COMPILE_ERROR;
                 }
@@ -329,11 +337,38 @@ pub const VM = struct {
         return undefined;
     }
 
+    fn closeUpvalues(self: *Self, last: *const Value) void {
+        while (self.openUpvalues) |currUpvalue| {
+            if (@intFromPtr(currUpvalue.location) < @intFromPtr(last)) {
+                return;
+            }
+
+            const upvalue = currUpvalue;
+            upvalue.closed = upvalue.location.*;
+            upvalue.location = &upvalue.closed;
+            self.openUpvalues = upvalue.next;
+        }
+    }
+
     fn captureUpvalue(self: *Self, allocator: std.mem.Allocator, local: *const Value) !*Upvalue {
-        std.debug.print("capturedUpvalue", .{});
-        local.print();
-        std.debug.print("\n", .{});
+        var prevUpvalue: ?*Upvalue = null;
+        var maybeUpvalue: ?*Upvalue = self.openUpvalues;
+        while (maybeUpvalue) |upvalue| {
+            if (@intFromPtr(upvalue.location) > @intFromPtr(local)) {
+                prevUpvalue = upvalue;
+                maybeUpvalue = upvalue.next;
+            } else if (upvalue.location == local) {
+                return upvalue;
+            }
+        }
+
         const createdUpvalue =  try Upvalue.initUpvalue(allocator, self.metadata, local);
+        createdUpvalue.next = maybeUpvalue;
+        if (prevUpvalue) |prev| {
+            prev.next = createdUpvalue;
+        } else {
+            self.openUpvalues = createdUpvalue;
+        }
         return createdUpvalue;
     }
 

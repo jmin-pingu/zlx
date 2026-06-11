@@ -64,6 +64,7 @@ pub const Compiler = struct {
         name: Token,
         depth: ?u8,
         mutable: bool,
+        isCaptured: bool,
     };
 
     const Upvalue = struct {
@@ -122,14 +123,12 @@ pub const Compiler = struct {
         }
     );
 
-    // NOTE: this is what needs to be done.
-    // 1) during compiler initialization, we need to specify whether the new compiler encloses the existing one
-    // 2) when we're done with the compiler, we need to somehow use the enclosed compiler for remaining calls.
     pub fn init(metadata: *Metadata, enclosed: ?*Compiler, ftype: FunctionType, maybeParser: ?*Parser, allocator: std.mem.Allocator) !Self {
         const initLocal = Local {
             .depth=0,
             .name=Token.init(.IDENTIFIER, "", 0),
             .mutable=false,
+            .isCaptured = false,
         };
 
         const initUpvalue = Upvalue {
@@ -222,7 +221,12 @@ pub const Compiler = struct {
     fn endScope(self: *Self, allocator: std.mem.Allocator) !void {
         self.scopeDepth -= 1;
         while (self.localCount > 0 and self.locals[self.localCount-1].depth.? > self.scopeDepth) {
-            try self.emitByte(@intFromEnum(OpCode.OP_POP), allocator);
+            if (self.locals[self.localCount-1].isCaptured) {
+                try self.emitByte(@intFromEnum(OpCode.OP_CLOSE_UPVALUE), allocator);
+            }
+            else {
+                try self.emitByte(@intFromEnum(OpCode.OP_POP), allocator);
+            }
             self.localCount -= 1;
         }
     }
@@ -242,6 +246,10 @@ pub const Compiler = struct {
         try self.defineVariable(global, allocator);
     }
 
+    // 1. compileFunction use-after-free of upvalue data — enclosed.endCompiler() does self.* = enclosing.*, which overwrites the inner compiler's upvalues array. 
+    // The emission loop that follows was then reading garbage. 
+    //
+    // Fix: snapshot savedUpvalues before calling endCompiler.
     fn compileFunction(self: *Self, ftype: FunctionType, allocator: std.mem.Allocator) !void {
         const fnLine = self.parser.previous.line;
         const enclosed = try allocator.create(Compiler);
@@ -344,7 +352,7 @@ pub const Compiler = struct {
 
     fn addLocal(self: *Self, name: Token, isMutable: bool) void {
         assert(self.localCount < self.locals.len);
-        self.locals[self.localCount] = .{ .name = name, .depth = null, .mutable = isMutable };
+        self.locals[self.localCount] = .{ .name = name, .depth = null, .mutable = isMutable, .isCaptured = false };
         self.localCount += 1;
     }
 
@@ -796,6 +804,7 @@ pub const Compiler = struct {
         if (self.enclosing) |enclosed| {
             const maybeLocal = try enclosed.resolveLocal(name);
             if (maybeLocal) |local| {
+                enclosed.locals[local.index].isCaptured = true;
                 return try self.addUpvalue(local.index, true);
             }
 

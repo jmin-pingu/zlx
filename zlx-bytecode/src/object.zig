@@ -224,6 +224,8 @@ pub const NativeFunction = struct {
 pub const Upvalue = struct {
     object: Object,
     location: *const Value,
+    closed: Value,
+    next: ?*Upvalue,
 
     pub fn toObject(self: *Upvalue) *Object {
         return @ptrCast(@alignCast(self));
@@ -243,7 +245,9 @@ pub const Upvalue = struct {
         const upvalue = try allocator.create(Upvalue);
         upvalue.* = .{ 
             .object = .{ .objectType = .Upvalue, .next = metadata.allocations }, 
-            .location = slot
+            .location = slot,
+            .closed = Value.initNil(),
+            .next = null
         };
         return upvalue;
     }

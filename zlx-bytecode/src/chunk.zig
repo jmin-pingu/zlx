@@ -46,6 +46,7 @@ pub const OpCode = enum(u8) {
     OP_CLOSURE,
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
+    OP_CLOSE_UPVALUE,
     _,
 
     pub fn asByte(self: OpCode) u8 {
@@ -61,7 +62,7 @@ pub const OpCode = enum(u8) {
         }
 
         switch (self) {
-            .OP_RETURN, .OP_NEGATE, .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_POP,
+            .OP_RETURN, .OP_NEGATE, .OP_ADD, .OP_SUBTRACT, .OP_MULTIPLY, .OP_DIVIDE, .OP_POP, .OP_CLOSE_UPVALUE,
             .OP_TRUE, .OP_FALSE, .OP_NIL, .OP_NOT, .OP_EQUAL_INPLACE, .OP_EQUAL, .OP_GREATER, .OP_LESS, .OP_PRINT, => return self.simpleInstruction(offset),
             .OP_CONSTANT, .OP_SET_GLOBAL, .OP_GET_GLOBAL, .OP_DEFINE_GLOBAL => return self.constantInstruction(chunk, offset),
             .OP_SET_LOCAL, .OP_GET_LOCAL, .OP_CALL, .OP_GET_UPVALUE, .OP_SET_UPVALUE => return self.byteInstruction(chunk, offset),
