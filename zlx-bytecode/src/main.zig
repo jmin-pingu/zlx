@@ -3,6 +3,7 @@ const Chunk = @import("chunk.zig").Chunk;
 const VM = @import("vm.zig").VM;
 const InterpretResult = @import("vm.zig").InterpretResult;
 const Compiler = @import("compiler.zig").Compiler;
+const MemoryManager = @import("memory.zig").MemoryManager;
 const OpCode = @import("chunk.zig").OpCode;
 const Metadata = @import("gc.zig").Metadata;
 const print = std.debug.print;
@@ -11,7 +12,6 @@ const ArrayList = std.ArrayList;
 pub const mode = .Debug;
 
 pub fn main() !void {
-    // TODO: change the allocator
     const allocator = std.heap.page_allocator;
     var args = std.process.args();
     var argv: ArrayList([]const u8) = .empty;
@@ -56,10 +56,22 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
 pub fn interpret(source: []const u8, allocator: std.mem.Allocator) !InterpretResult {
     const compiler = try allocator.create(Compiler);
+    const vmRef = try allocator.create(VM);
+    const memoryManager = try MemoryManager.init(allocator, vmRef, compiler);
+
     const metadata = try allocator.create(Metadata);
     metadata.* = Metadata.init(allocator); 
-    compiler.* = try Compiler.init(metadata, null, .Script, null, allocator);
-    var vm = try VM.init(metadata, allocator);
+    compiler.* = try Compiler.init(
+        metadata,
+        null,
+        .Script,
+        null,
+        memoryManager,
+        allocator
+    );
+
+    var vm = try VM.init(metadata, memoryManager, allocator);
+    vmRef.* = vm;
     defer vm.deinit(allocator);
     defer metadata.trace(null);
     return vm.interpret(compiler, source, allocator) catch |err| {

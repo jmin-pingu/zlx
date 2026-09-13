@@ -10,12 +10,14 @@ const Function = @import("object.zig").Function;
 const FunctionType = @import("object.zig").FunctionType;
 const ParseError = @import("error.zig").ParseError;
 const Parser = @import("parser.zig").Parser;
+const Metadata = @import("gc.zig").Metadata;
+const MemoryManager = @import("memory.zig").MemoryManager;
+const Decrementer = @import("utils.zig").Decrementer;
+
 const errorAt = @import("error.zig").errorAt;
 const debug = @import("error.zig").debug;
 const assert = std.debug.assert;
 const mode = @import("main.zig").mode;
-const Metadata = @import("gc.zig").Metadata;
-const Decrementer = @import("utils.zig").Decrementer;
 
 // TODO: need better error handling for this entire project
 const Precedence = enum {
@@ -43,6 +45,7 @@ pub const Compiler = struct {
     localCount: u8,
     scopeDepth: u8,
     currentLoop: ?usize,
+    memoryManager: *MemoryManager,
 
     const Self = @This();
     const ParseFn = *const fn(*Compiler, canAssign: bool, allocator: std.mem.Allocator) ParseError!void;
@@ -123,7 +126,14 @@ pub const Compiler = struct {
         }
     );
 
-    pub fn init(metadata: *Metadata, enclosed: ?*Compiler, ftype: FunctionType, maybeParser: ?*Parser, allocator: std.mem.Allocator) !Self {
+    pub fn init(
+        metadata: *Metadata, 
+        enclosed: ?*Compiler, 
+        ftype: FunctionType, 
+        maybeParser: ?*Parser, 
+        memoryManager: *MemoryManager, 
+        allocator: std.mem.Allocator
+    ) !Self {
         const initLocal = Local {
             .depth=0,
             .name=Token.init(.IDENTIFIER, "", 0),
@@ -140,7 +150,7 @@ pub const Compiler = struct {
         const name = switch(ftype) {
             .Function => out: {
                 if (maybeParser) |parser| {
-                    break :out try String.initString(parser.previous.token, metadata, allocator);
+                    break :out try String.init(allocator, memoryManager, parser.previous.token, metadata);
                 } else {
                     return ParseError.TODO;
                 }
@@ -161,9 +171,10 @@ pub const Compiler = struct {
             .localCount = 1,
             .scopeDepth = 0,
             .currentLoop = null,
-            .function = try Function.initFunction(allocator, metadata, name),
+            .function = try Function.init(allocator, memoryManager, metadata, name),
             .functionType = ftype,
             .enclosing = enclosed,
+            .memoryManager = memoryManager,
         };
     }
 
@@ -246,16 +257,19 @@ pub const Compiler = struct {
         try self.defineVariable(global, allocator);
     }
 
-    // 1. compileFunction use-after-free of upvalue data — enclosed.endCompiler() does self.* = enclosing.*, which overwrites the inner compiler's upvalues array. 
-    // The emission loop that follows was then reading garbage. 
-    //
-    // Fix: snapshot savedUpvalues before calling endCompiler.
     fn compileFunction(self: *Self, ftype: FunctionType, allocator: std.mem.Allocator) !void {
         const fnLine = self.parser.previous.line;
         const enclosed = try allocator.create(Compiler);
         defer allocator.destroy(enclosed);
         // NOTE:
-        enclosed.* = try Compiler.init(self.metadata, self, ftype, self.parser, allocator);
+        enclosed.* = try Compiler.init(
+            self.metadata, 
+            self, 
+            ftype, 
+            self.parser, 
+            self.memoryManager, 
+            allocator
+        );
         enclosed.beginScope();
         try enclosed.parser.consume(.LEFT_PAREN, ParseError.ExpectLeftParenthesisAfterFnName);
         if (!enclosed.check(.RIGHT_PAREN)) {
@@ -321,7 +335,7 @@ pub const Compiler = struct {
     }
 
     fn identifierConstant(self: *Self, name: []const u8, allocator: std.mem.Allocator) !u8 {
-        const identifier = try Value.initString(name, self.metadata, allocator);
+        const identifier = try Value.initString(allocator, self.memoryManager, name, self.metadata);
         return try self.makeConstant(identifier, allocator);
     }
 
@@ -721,7 +735,7 @@ pub const Compiler = struct {
                 // NOTE: check if exists
                 const stringLiteral = str[1..str.len-1];
                 try self.emitConstant(
-                    try Value.initString(stringLiteral, self.metadata, allocator), 
+                    try Value.initString(allocator, self.memoryManager, stringLiteral, self.metadata), 
                     allocator
                 );
             },

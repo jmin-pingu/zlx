@@ -8,6 +8,7 @@ const StringHashMap = std.StringHashMap;
 
 pub const Metadata = struct {
     allocations: ?*Object,
+    // NOTE: reference this
     interned: StringHashMap(*Object),
     identifiers: StringHashMap(bool),
 

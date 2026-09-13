@@ -12,17 +12,30 @@ const OpCode = @import("chunk.zig").OpCode;
 const ArrayList = std.ArrayList;
 const print = std.debug.print;
 const Compiler = @import("compiler.zig").Compiler;
+const MemoryManager = @import("memory.zig").MemoryManager;
 const debug = @import("error.zig").debug;
 const mode = @import("main.zig").mode;
 const Metadata = @import("gc.zig").Metadata;
-const StringHashMap = std.StringHashMap;
 const assert = std.debug.assert;
 const c = @cImport(@cInclude("time.h"));
 
 const STACK_SIZE = FRAMES_MAX * std.math.maxInt(u8);
 const FRAMES_MAX = 64;
 
-// TODO: there is something wrong with the frame buffer logic
+const StringHashMap = std.StringHashMap(HashMapEntry);
+const HashMapEntry = struct {
+    keyPtr: *String,
+    value: Value,
+
+    pub fn init(keyPtr: *String, value: Value) HashMapEntry {
+        return .{.keyPtr=keyPtr, .value=value};
+    }
+
+    pub fn getValue(self: HashMapEntry) Value {
+        return self.value;
+    }
+};
+
 pub const InterpretResult = enum {
     INTERPRET_OK, 
     INTERPRET_COMPILE_ERROR, 
@@ -63,7 +76,7 @@ pub const VM = struct {
     /// TODO: add description
     stack: [*]Value,
     /// TODO: add description
-    globals: StringHashMap(Value),
+    globals: StringHashMap,
     /// TODO: add description
     frames: [FRAMES_MAX]*CallFrame,
     /// TODO: add description
@@ -72,26 +85,31 @@ pub const VM = struct {
     metadata: *Metadata,
     /// TODO: add description
     openUpvalues: ?*Upvalue,
-
     /// TODO: add description
+    grayStack: ArrayList(*Object),
+    /// TODO: add description
+    memoryManager: *MemoryManager,
+
     var stackBuffer: [STACK_SIZE]Value = [_]Value{undefined} ** STACK_SIZE;
     var frameBuffer: [FRAMES_MAX]*CallFrame = [_]*CallFrame{undefined} ** FRAMES_MAX;
     const stackBase: [*]Value = stackBuffer[0..STACK_SIZE].ptr;
 
     const Self = @This();
 
-    pub fn init(metadata: *Metadata, allocator: std.mem.Allocator) !Self {
+    pub fn init(metadata: *Metadata, memoryManager: *MemoryManager, allocator: std.mem.Allocator) !Self {
         var vm: VM = .{
             .chunk = undefined,
             .ip = undefined,
             .stack = stackBuffer[0..STACK_SIZE].ptr,
             .metadata = metadata,
-            .globals = StringHashMap(Value).init(allocator),
+            .globals = StringHashMap.init(allocator),
             .frames = frameBuffer,
             .frameCount = 0,
             .openUpvalues = null,
+            .grayStack = .empty,
+            .memoryManager = memoryManager,
         };
-        try defineNative(&vm, "clock", clockNative, 0, allocator);
+        try defineNative(allocator, memoryManager, &vm, "clock", clockNative, 0, metadata);
         return vm;
     }
 
@@ -100,8 +118,8 @@ pub const VM = struct {
             std.debug.print("vm: compile error {any}\n", .{err});
             return .INTERPRET_COMPILE_ERROR;
         };
-        const closure = try Closure.initClosure(allocator, self.metadata, function);
-        self.push(closure.toValue());
+        const closure = try Closure.init(allocator, self.memoryManager, self.metadata, function);
+        self.push(Object.toValue(closure));
         _ = try self.call(closure, 0, allocator);
 
         return self.run(allocator);
@@ -110,6 +128,8 @@ pub const VM = struct {
     fn currentFrame(self: Self) *CallFrame {
         return self.frames[self.frameCount-1];
     }
+
+    // TODO: create an iterator for frames. 
 
     pub fn peek(self: *Self, distance: usize) Value {
         assert(@intFromPtr(stackBase) <= @intFromPtr(self.stack - 1 - distance));
@@ -211,17 +231,16 @@ pub const VM = struct {
                     self.push(frame.slots[slot_idx]);
                 },
                 .OP_DEFINE_GLOBAL => {
-                    // NOTE: readByte works since for these constant instructions we save 
                     const constant = try self.readConstant();
                     const identifier = constant.Object.toObjectType(String);
-                    try self.globals.put(identifier.value, self.peek(0));
+                    try self.globals.put(identifier.value, HashMapEntry.init(identifier, self.peek(0)));
                     _ = self.pop();
                 },
                 .OP_SET_GLOBAL => {
                     const constant = try self.readConstant();
                     const identifier = constant.Object.toObjectType(String);
                     const notDefined = !self.globals.contains(identifier.value);
-                    try self.globals.put(identifier.value, self.peek(0));
+                    try self.globals.put(identifier.value, HashMapEntry.init(identifier, self.peek(0)));
                     if (notDefined) {
                         try self.runtimeError("Undefined variable {s}\n", .{identifier.value});
                         return .INTERPRET_RUNTIME_ERROR;
@@ -230,8 +249,8 @@ pub const VM = struct {
                 .OP_GET_GLOBAL => {
                     const constant = try self.readConstant();
                     const identifier = constant.Object.toObjectType(String);
-                    if (self.globals.get(identifier.value)) |value| {
-                        self.push(value);
+                    if (self.globals.get(identifier.value)) |entry| {
+                        self.push(entry.getValue());
                     } else {
                         try self.runtimeError("Undefined variable {s}\n", .{identifier.value});
                         return .INTERPRET_RUNTIME_ERROR;
@@ -304,7 +323,7 @@ pub const VM = struct {
                 .OP_CLOSURE => {
                     const constant = try self.readConstant();
                     const function = constant.Object.toObjectType(Function);
-                    const closure = try Closure.initClosure(allocator, self.metadata, function);
+                    const closure = try Closure.init(allocator, self.memoryManager, self.metadata, function);
                     self.push(try Value.initClosure(closure));
                     for (0..closure.upvalueCount) |n| {
                         const isLocal = self.readByte();
@@ -362,7 +381,7 @@ pub const VM = struct {
             }
         }
 
-        const createdUpvalue =  try Upvalue.initUpvalue(allocator, self.metadata, local);
+        const createdUpvalue =  try Upvalue.init(allocator, self.memoryManager, self.metadata, local);
         createdUpvalue.next = maybeUpvalue;
         if (prevUpvalue) |prev| {
             prev.next = createdUpvalue;
@@ -376,7 +395,6 @@ pub const VM = struct {
         if (callee.isObject()) {
             switch (callee.Object.objectType) {
                 .Closure => return try self.call(callee.Object.toObjectType(Closure), nargs, allocator),
-                // .Function => return try self.call(callee.Object.toObjectType(Function), nargs, allocator),
                 .NativeFunction => {
                     // NOTE: nargs is defined; we need arity is the issue
                     const native = callee.Object.toObjectType(NativeFunction);
@@ -396,9 +414,10 @@ pub const VM = struct {
         return false; 
     }
 
-    fn defineNative(self: *Self, name: []const u8, function: NativeFunctionType, arity: usize, allocator: std.mem.Allocator) !void {
-        self.push(try Value.initNativeFunction(allocator, self.metadata, function, arity));
-        try self.globals.put(name, (self.stack-1)[0]);
+    fn defineNative(allocator: std.mem.Allocator, memoryManager: *MemoryManager, self: *Self, name: []const u8, function: NativeFunctionType, arity: usize, metadata: *Metadata) !void {
+        self.push(try Value.initNativeFunction(allocator, memoryManager, self.metadata, function, arity));
+        const fnName = try String.init(allocator, memoryManager, name, metadata);
+        try self.globals.put(fnName.value, HashMapEntry.init(fnName, (self.stack-1)[0]));
         _ = self.pop();
     }
 
@@ -428,12 +447,12 @@ pub const VM = struct {
         const a: *String = self.pop().Object.toObjectType(String);
         const b: *String = self.pop().Object.toObjectType(String);
         const concat = try std.fmt.allocPrint(allocator, "{s}{s}", .{b.value, a.value});
-        self.push(try Value.initString(concat, self.metadata, allocator));
+        self.push(try Value.initString(allocator, self.memoryManager, concat, self.metadata));
     }
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         if (self.metadata.allocations) |obj| {
-            obj.deinit(allocator);
+            obj.freeObjects(allocator);
         }
         self.metadata.identifiers.deinit();
         self.metadata.interned.deinit();

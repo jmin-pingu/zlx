@@ -3,6 +3,8 @@ const std = @import("std");
 
 pub const Mode = enum {
     Debug,
+    DebugGC,
+    StressGC,
     Default
 };
 

@@ -3,6 +3,7 @@ const Metadata = @import("gc.zig").Metadata;
 const debug = @import("error.zig").debug;
 const mode = @import("main.zig").mode;
 const Chunk = @import("chunk.zig").Chunk;
+const MemoryManager = @import("memory.zig").MemoryManager;
 const Object = @import("object.zig").Object;
 const ObjectType = @import("object.zig").ObjectType;
 const Function = @import("object.zig").Function;
@@ -31,29 +32,26 @@ pub const Value = union(ValueTag) {
     }
 
     pub fn initFunction(function: *Function) !Value {
-        const object = function.toObject();
-        return .{ .Object = object };
+        return Object.toValue(function);
     }
 
     pub fn initClosure(closure: *Closure) !Value {
-        const object = closure.toObject();
-        return .{ .Object = object };
+        return Object.toValue(closure);
     }
 
-    pub fn initNativeFunction(allocator: std.mem.Allocator, metadata: *Metadata, nativeFn: NativeFunctionType, arity: usize) !Value {
-        const native = try NativeFunction.initNativeFunction(allocator, metadata, nativeFn, arity);
-        const object = native.toObject();
-        return .{ .Object = object };
+    pub fn initNativeFunction(allocator: std.mem.Allocator, memoryManager: *MemoryManager, metadata: *Metadata, nativeFn: NativeFunctionType, arity: usize) !Value {
+        const native = try NativeFunction.init(allocator, memoryManager, metadata, nativeFn, arity);
+        return Object.toValue(native);
     }
 
-    pub fn initString(value: []const u8, metadata: *Metadata, allocator: std.mem.Allocator) !Value {
+    pub fn initString(allocator: std.mem.Allocator, memoryManager: *MemoryManager, value: []const u8, metadata: *Metadata, ) !Value {
         if (metadata.retrieveString(value)) |object| {
-            return .{ .Object = object };
+            return Object.toValue(object.toObjectType(String));
         } else {
-            const string = try String.initString(value, metadata, allocator);
-            const object = string.toObject();
+            const string = try String.init(allocator, memoryManager, value, metadata);
+            const object = Object.toObject(string);
             try metadata.setString(value, object);
-            return .{ .Object = object };
+            return Object.toValue(object.toObjectType(String));
         }
     }
 
