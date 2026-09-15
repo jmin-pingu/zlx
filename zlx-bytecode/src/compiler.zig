@@ -930,3 +930,376 @@ fn enumMax(@"type": type) comptime_int {
     }
 }
 
+
+const testing = std.testing;
+
+const CompileResult = struct {
+    function: *Function,
+    metadata: *Metadata,
+};
+
+fn compileSource(source: []const u8) !CompileResult {
+    const allocator = std.testing.allocator;
+    const compiler = try allocator.create(Compiler);
+    const metadata = try allocator.create(Metadata);
+    metadata.* = Metadata.init(allocator);
+    const memoryManager = try MemoryManager.init(allocator, undefined, compiler);
+    compiler.* = try Compiler.init(metadata, null, .Script, null, memoryManager, allocator);
+    const function = try compiler.compile(source, allocator);
+    return .{ .function = function, .metadata = metadata };
+}
+
+fn compileCode(source: []const u8) ![]const u8 {
+    return (try compileSource(source)).function.chunk.code.items;
+}
+
+fn op(code: OpCode) u8 {
+    return @intFromEnum(code);
+}
+
+fn expectCode(source: []const u8, expected: []const u8) !void {
+    try testing.expectEqualSlices(u8, expected, try compileCode(source));
+}
+
+fn functionConstant(function: *Function, index: usize) !*Function {
+    const constant = try function.chunk.getConstant(index);
+    try testing.expect(constant.isObjectType(.Function));
+    return constant.Object.toObjectType(Function);
+}
+
+fn stringConstant(function: *Function, index: usize) ![]const u8 {
+    const constant = try function.chunk.getConstant(index);
+    try testing.expect(constant.isObjectType(.String));
+    return constant.Object.toObjectType(String).value;
+}
+
+test "compiler emits arithmetic followed by an implicit return" {
+    try expectCode("1 + 2;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_ADD), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+    const result = try compileSource("1 + 2;");
+    try testing.expectEqual(@as(f64, 1), (try result.function.chunk.getConstant(0)).Number);
+    try testing.expectEqual(@as(f64, 2), (try result.function.chunk.getConstant(1)).Number);
+}
+
+test "compiler empty source compiles to an implicit return" {
+    try expectCode("", &[_]u8{ op(.OP_NIL), op(.OP_RETURN) });
+}
+
+test "compiler respects precedence, grouping and left associativity" {
+    try expectCode("1 + 2 * 3;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_CONSTANT), 2, op(.OP_MULTIPLY), op(.OP_ADD),
+        op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+    try expectCode("(1 + 2) * 3;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_ADD), op(.OP_CONSTANT), 2, op(.OP_MULTIPLY),
+        op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+    try expectCode("1 - 2 - 3;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_SUBTRACT), op(.OP_CONSTANT), 2, op(.OP_SUBTRACT),
+        op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+    try expectCode("8 / 4 / 2;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_DIVIDE), op(.OP_CONSTANT), 2, op(.OP_DIVIDE),
+        op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+}
+
+test "compiler unary operators bind tighter than binary" {
+    try expectCode("-1;", &[_]u8{ op(.OP_CONSTANT), 0, op(.OP_NEGATE), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+    try expectCode("!true;", &[_]u8{ op(.OP_TRUE), op(.OP_NOT), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+    try expectCode("!!nil;", &[_]u8{ op(.OP_NIL), op(.OP_NOT), op(.OP_NOT), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+    try expectCode("-1 + 2;", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_NEGATE), op(.OP_CONSTANT), 1, op(.OP_ADD), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+}
+
+test "compiler desugars comparison operators" {
+    const tail = [_]u8{ op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) };
+    const head = [_]u8{ op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1 };
+    try expectCode("1 < 2;", &(head ++ [_]u8{op(.OP_LESS)} ++ tail));
+    try expectCode("1 > 2;", &(head ++ [_]u8{op(.OP_GREATER)} ++ tail));
+    try expectCode("1 <= 2;", &(head ++ [_]u8{ op(.OP_GREATER), op(.OP_NOT) } ++ tail));
+    try expectCode("1 >= 2;", &(head ++ [_]u8{ op(.OP_LESS), op(.OP_NOT) } ++ tail));
+    try expectCode("1 == 2;", &(head ++ [_]u8{op(.OP_EQUAL)} ++ tail));
+    try expectCode("1 != 2;", &(head ++ [_]u8{ op(.OP_EQUAL), op(.OP_NOT) } ++ tail));
+}
+
+test "compiler literals and string constants" {
+    try expectCode("nil;", &[_]u8{ op(.OP_NIL), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+    try expectCode("true;", &[_]u8{ op(.OP_TRUE), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+    try expectCode("false;", &[_]u8{ op(.OP_FALSE), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) });
+
+    const result = try compileSource("\"hi\";");
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CONSTANT), 0, op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) }, result.function.chunk.code.items);
+    try testing.expectEqualStrings("hi", try stringConstant(result.function, 0));
+}
+
+test "compiler print statement" {
+    try expectCode("print 1;", &[_]u8{ op(.OP_CONSTANT), 0, op(.OP_PRINT), op(.OP_NIL), op(.OP_RETURN) });
+}
+
+test "compiler global variable declarations" {
+    const initialised = try compileSource("var x = 1;");
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CONSTANT), 1, op(.OP_DEFINE_GLOBAL), 0, op(.OP_NIL), op(.OP_RETURN) }, initialised.function.chunk.code.items);
+    try testing.expectEqualStrings("x", try stringConstant(initialised.function, 0));
+    try testing.expectEqual(@as(f64, 1), (try initialised.function.chunk.getConstant(1)).Number);
+    try testing.expect(initialised.metadata.isGlobal("x"));
+    try testing.expect(!initialised.metadata.isGlobalConst("x"));
+
+    try expectCode("var x;", &[_]u8{ op(.OP_NIL), op(.OP_DEFINE_GLOBAL), 0, op(.OP_NIL), op(.OP_RETURN) });
+
+    const constant = try compileSource("const k = 2;");
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CONSTANT), 1, op(.OP_DEFINE_GLOBAL), 0, op(.OP_NIL), op(.OP_RETURN) }, constant.function.chunk.code.items);
+    try testing.expect(constant.metadata.isGlobalConst("k"));
+}
+
+test "compiler global get and set reuse the identifier constant" {
+    const result = try compileSource("var x = 1; x = 2; x;");
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_CONSTANT),   1, op(.OP_DEFINE_GLOBAL), 0,
+        op(.OP_CONSTANT),   2, op(.OP_SET_GLOBAL),    0, op(.OP_POP),
+        op(.OP_GET_GLOBAL), 0, op(.OP_POP),
+        op(.OP_NIL),        op(.OP_RETURN),
+    }, result.function.chunk.code.items);
+    try testing.expectEqual(@as(usize, 3), result.function.chunk.constants.values.items.len);
+}
+
+test "compiler locals resolve to stack slots" {
+    const result = try compileSource("{ var a = 1; var b = 2; a = b; a; }");
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_CONSTANT),  0, op(.OP_CONSTANT),  1,
+        op(.OP_GET_LOCAL), 2, op(.OP_SET_LOCAL), 1, op(.OP_POP),
+        op(.OP_GET_LOCAL), 1, op(.OP_POP),
+        op(.OP_POP),       op(.OP_POP),
+        op(.OP_NIL),       op(.OP_RETURN),
+    }, result.function.chunk.code.items);
+    try testing.expectEqual(@as(usize, 2), result.function.chunk.constants.values.items.len);
+}
+
+test "compiler nested scopes pop locals when each scope ends" {
+    try expectCode("{ var a = 1; { var b = 2; } }", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_POP), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+}
+
+test "compiler if statement jump offsets" {
+    try expectCode("if (true) print 1;", &[_]u8{
+        op(.OP_TRUE),
+        op(.OP_JUMP_IF_FALSE), 0, 7,
+        op(.OP_POP),
+        op(.OP_CONSTANT),      0, op(.OP_PRINT),
+        op(.OP_JUMP),          0, 1,
+        op(.OP_POP),
+        op(.OP_NIL),           op(.OP_RETURN),
+    });
+    try expectCode("if (false) 1; else 2;", &[_]u8{
+        op(.OP_FALSE),
+        op(.OP_JUMP_IF_FALSE), 0, 7,
+        op(.OP_POP),
+        op(.OP_CONSTANT),      0, op(.OP_POP),
+        op(.OP_JUMP),          0, 4,
+        op(.OP_POP),
+        op(.OP_CONSTANT),      1, op(.OP_POP),
+        op(.OP_NIL),           op(.OP_RETURN),
+    });
+}
+
+test "compiler while loop jumps back to the condition" {
+    try expectCode("while (false) 1;", &[_]u8{
+        op(.OP_FALSE),
+        op(.OP_JUMP_IF_FALSE), 0, 7,
+        op(.OP_POP),
+        op(.OP_CONSTANT),      0, op(.OP_POP),
+        op(.OP_LOOP),          0, 11,
+        op(.OP_POP),
+        op(.OP_NIL),           op(.OP_RETURN),
+    });
+}
+
+test "compiler for loop with all three clauses" {
+    try expectCode("for (var i = 0; i < 1; i = i + 1) 1;", &[_]u8{
+        op(.OP_CONSTANT),      0,
+        op(.OP_GET_LOCAL),     1, op(.OP_CONSTANT), 1, op(.OP_LESS),
+        op(.OP_JUMP_IF_FALSE), 0, 21,
+        op(.OP_POP),
+        op(.OP_JUMP),          0, 11,
+        op(.OP_GET_LOCAL),     1, op(.OP_CONSTANT), 2, op(.OP_ADD), op(.OP_SET_LOCAL), 1, op(.OP_POP),
+        op(.OP_LOOP),          0, 23,
+        op(.OP_CONSTANT),      3, op(.OP_POP),
+        op(.OP_LOOP),          0, 17,
+        op(.OP_POP),
+        op(.OP_POP),
+        op(.OP_NIL),           op(.OP_RETURN),
+    });
+}
+
+test "compiler logical operators short circuit with jumps" {
+    try expectCode("true and false;", &[_]u8{
+        op(.OP_TRUE), op(.OP_JUMP_IF_FALSE), 0, 2, op(.OP_POP), op(.OP_FALSE), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+    try expectCode("false or true;", &[_]u8{
+        op(.OP_FALSE), op(.OP_JUMP_IF_FALSE), 0, 3, op(.OP_JUMP), 0, 2, op(.OP_POP), op(.OP_TRUE), op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    });
+}
+
+test "compiler function declaration produces a closure constant" {
+    const result = try compileSource("fun f() {}");
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CLOSURE), 1, op(.OP_DEFINE_GLOBAL), 0, op(.OP_NIL), op(.OP_RETURN) }, result.function.chunk.code.items);
+    try testing.expectEqualStrings("f", try stringConstant(result.function, 0));
+
+    const f = try functionConstant(result.function, 1);
+    try testing.expectEqualStrings("f", f.name.?.value);
+    try testing.expectEqual(@as(usize, 0), f.arity);
+    try testing.expectEqual(@as(u8, 0), f.upvalueCount);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_NIL), op(.OP_RETURN) }, f.chunk.code.items);
+    try testing.expect(result.function.name == null);
+}
+
+test "compiler function parameters and return statements" {
+    const add = try functionConstant((try compileSource("fun add(a, b) { return a + b; }")).function, 1);
+    try testing.expectEqual(@as(usize, 2), add.arity);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_GET_LOCAL), 1, op(.OP_GET_LOCAL), 2, op(.OP_ADD), op(.OP_RETURN), op(.OP_NIL), op(.OP_RETURN),
+    }, add.chunk.code.items);
+
+    const bare = try functionConstant((try compileSource("fun f() { return; }")).function, 1);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_NIL), op(.OP_RETURN), op(.OP_NIL), op(.OP_RETURN) }, bare.chunk.code.items);
+}
+
+test "compiler call expressions" {
+    try expectCode("fun f() {} f(); f(1, 2);", &[_]u8{
+        op(.OP_CLOSURE),    1, op(.OP_DEFINE_GLOBAL), 0,
+        op(.OP_GET_GLOBAL), 0, op(.OP_CALL),          0, op(.OP_POP),
+        op(.OP_GET_GLOBAL), 0, op(.OP_CONSTANT),      2, op(.OP_CONSTANT), 3, op(.OP_CALL), 2, op(.OP_POP),
+        op(.OP_NIL),        op(.OP_RETURN),
+    });
+}
+
+test "compiler closure captures an enclosing local as an upvalue" {
+    const read = try compileSource("fun outer() { var x = 1; fun inner() { x; } }");
+    const outer = try functionConstant(read.function, 1);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CLOSURE), 1, 1, 1, op(.OP_NIL), op(.OP_RETURN),
+    }, outer.chunk.code.items);
+    try testing.expectEqual(@as(u8, 0), outer.upvalueCount);
+
+    const inner = try functionConstant(outer, 1);
+    try testing.expectEqual(@as(u8, 1), inner.upvalueCount);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_GET_UPVALUE), 0, op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) }, inner.chunk.code.items);
+
+    const write = try compileSource("fun outer() { var x = 1; fun inner() { x = 2; } }");
+    const writer = try functionConstant(try functionConstant(write.function, 1), 1);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CONSTANT), 0, op(.OP_SET_UPVALUE), 0, op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) }, writer.chunk.code.items);
+}
+
+test "compiler allocates one upvalue slot per captured variable" {
+    const same = try functionConstant(try functionConstant((try compileSource("fun outer() { var x = 1; fun inner() { x; x; } }")).function, 1), 1);
+    try testing.expectEqual(@as(u8, 1), same.upvalueCount);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_GET_UPVALUE), 0, op(.OP_POP), op(.OP_GET_UPVALUE), 0, op(.OP_POP), op(.OP_NIL), op(.OP_RETURN),
+    }, same.chunk.code.items);
+
+    const outer = try functionConstant((try compileSource("fun outer() { var x = 1; var y = 2; fun inner() { x; y; } }")).function, 1);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CONSTANT), 1, op(.OP_CLOSURE), 2, 1, 1, 1, 2, op(.OP_NIL), op(.OP_RETURN),
+    }, outer.chunk.code.items);
+    try testing.expectEqual(@as(u8, 2), (try functionConstant(outer, 2)).upvalueCount);
+}
+
+test "compiler closure captures through an intermediate function" {
+    const a = try functionConstant((try compileSource("fun a() { var x = 1; fun b() { fun c() { x; } } }")).function, 1);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CONSTANT), 0, op(.OP_CLOSURE), 1, 1, 1, op(.OP_NIL), op(.OP_RETURN) }, a.chunk.code.items);
+
+    const b = try functionConstant(a, 1);
+    try testing.expectEqual(@as(u8, 1), b.upvalueCount);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_CLOSURE), 0, 0, 0, op(.OP_NIL), op(.OP_RETURN) }, b.chunk.code.items);
+
+    const c = try functionConstant(b, 0);
+    try testing.expectEqual(@as(u8, 1), c.upvalueCount);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_GET_UPVALUE), 0, op(.OP_POP), op(.OP_NIL), op(.OP_RETURN) }, c.chunk.code.items);
+}
+
+test "compiler closes captured block locals at scope end" {
+    try expectCode("{ var x = 1; fun f() { x; } }", &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_CLOSURE), 1, 1, 1,
+        op(.OP_POP),
+        op(.OP_CLOSE_UPVALUE),
+        op(.OP_NIL), op(.OP_RETURN),
+    });
+}
+
+test "compiler switch statement uses in-place equality" {
+    const code = try compileCode("switch (1) { 1 => 2; default => 3; }");
+    try testing.expect(std.mem.indexOfScalar(u8, code, op(.OP_EQUAL_INPLACE)) != null);
+    try testing.expectEqualSlices(u8, &[_]u8{ op(.OP_NIL), op(.OP_RETURN) }, code[code.len - 2 ..]);
+}
+
+test "compiler declaration errors propagate out of compile" {
+    const cases = [_]struct { []const u8, ParseError }{
+        .{ "var = 1;", ParseError.VarMissingIdentifier },
+        .{ "var x = 1", ParseError.NoClosingSemicolon },
+        .{ "var x = 1 +;", ParseError.PrefixRuleUndefined },
+        .{ "const x;", ParseError.ConstNotDefined },
+        .{ "var x = 1; var x = 2;", ParseError.DuplicateIdentifierInScope },
+        .{ "fun f() { var a = 1; var a = 2; }", ParseError.DuplicateIdentifierInScope },
+        .{ "fun f {}", ParseError.ExpectLeftParenthesisAfterFnName },
+        .{ "fun f() 1;", ParseError.ExpectLeftBraceAfterFnBody },
+        .{ "fun f() { 1; ", ParseError.NoClosingRightBrace },
+        .{ "var s = \"abc", ParseError.UnterminatedString },
+    };
+    for (cases) |case| {
+        try testing.expectError(case[1], compileSource(case[0]));
+    }
+}
+
+test "compiler const reassignment is a compile error" {
+    try testing.expectError(ParseError.ConstIsImmutable, compileSource("const c = 1; c = 2;"));
+}
+
+test "compiler local initializer may reference an earlier local" {
+    const result = try compileSource("fun f() { var a = 1; var b = a; return b; }");
+    const f = try functionConstant(result.function, 1);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        op(.OP_CONSTANT), 0, op(.OP_GET_LOCAL), 1, op(.OP_GET_LOCAL), 2, op(.OP_RETURN), op(.OP_NIL), op(.OP_RETURN),
+    }, f.chunk.code.items);
+}
+
+test "compiler enumMax returns the highest enum value" {
+    try testing.expect(enumMax(Precedence) == @intFromEnum(Precedence.PRIMARY));
+    try testing.expect(enumMax(enum(u8) { a = 3, b = 9, c = 1 }) == 9);
+}
+
+test "compiler parse table wires prefix and infix rules" {
+    const number = Compiler.parseTable.get(.NUMBER);
+    try testing.expect(number.prefix != null);
+    try testing.expect(number.infix == null);
+    try testing.expectEqual(Precedence.NONE, number.precedence);
+
+    const plus = Compiler.parseTable.get(.PLUS);
+    try testing.expect(plus.prefix == null);
+    try testing.expect(plus.infix != null);
+    try testing.expectEqual(Precedence.TERM, plus.precedence);
+
+    const minus = Compiler.parseTable.get(.MINUS);
+    try testing.expect(minus.prefix != null);
+    try testing.expect(minus.infix != null);
+    try testing.expectEqual(Precedence.TERM, minus.precedence);
+
+    try testing.expectEqual(Precedence.FACTOR, Compiler.parseTable.get(.STAR).precedence);
+    try testing.expectEqual(Precedence.FACTOR, Compiler.parseTable.get(.SLASH).precedence);
+    try testing.expectEqual(Precedence.EQUALITY, Compiler.parseTable.get(.EQUAL_EQUAL).precedence);
+    try testing.expectEqual(Precedence.COMPARISON, Compiler.parseTable.get(.LESS).precedence);
+    try testing.expectEqual(Precedence.AND, Compiler.parseTable.get(.AND).precedence);
+    try testing.expectEqual(Precedence.OR, Compiler.parseTable.get(.OR).precedence);
+
+    const paren = Compiler.parseTable.get(.LEFT_PAREN);
+    try testing.expect(paren.prefix != null);
+    try testing.expect(paren.infix != null);
+    try testing.expectEqual(Precedence.CALL, paren.precedence);
+
+    const eof = Compiler.parseTable.get(.EOF);
+    try testing.expect(eof.prefix == null);
+    try testing.expect(eof.infix == null);
+    try testing.expectEqual(Precedence.NONE, eof.precedence);
+}

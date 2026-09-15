@@ -122,3 +122,46 @@ test "rle consecutive different lines" {
     try std.testing.expectEqual(@as(?usize, 3), try rle.decodeFirst(2));
 }
 
+
+test "encode rejects inconsistent internal state" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+    try rle.line.append(allocator, 1);
+    try std.testing.expectError(EncodingError.InvalidState, rle.encode(allocator, 1));
+}
+
+test "decode past the encoded range is out of index" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+    for (0..3) |_| try rle.encode(allocator, 7);
+    try std.testing.expectEqual(@as(usize, 7), try rle.decode(2));
+    try std.testing.expectError(EncodingError.OutOfIndex, rle.decode(3));
+    try std.testing.expectError(EncodingError.OutOfIndex, rle.decodeFirst(3));
+}
+
+test "encode groups repeated lines into runs" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+    for (0..3) |_| try rle.encode(allocator, 4);
+    for (0..2) |_| try rle.encode(allocator, 9);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 4, 9 }, rle.line.items);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 3, 2 }, rle.num.items);
+}
+
+test "encode only extends the most recent run" {
+    const allocator = std.testing.allocator;
+    var rle = RLE.init();
+    defer rle.deinit(allocator);
+    try rle.encode(allocator, 1);
+    try rle.encode(allocator, 2);
+    try rle.encode(allocator, 1);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 2, 1 }, rle.line.items);
+    try std.testing.expectEqualSlices(usize, &[_]usize{ 1, 1, 1 }, rle.num.items);
+    try std.testing.expectEqual(@as(usize, 1), try rle.decode(0));
+    try std.testing.expectEqual(@as(usize, 2), try rle.decode(1));
+    try std.testing.expectEqual(@as(usize, 1), try rle.decode(2));
+    rle.print();
+}

@@ -247,7 +247,7 @@ pub const Chunk = struct {
 const testing = std.testing;
 
 test "chunk write and getLine" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     var chunk = Chunk.init(allocator);
 
     try chunk.write(@intFromEnum(OpCode.OP_NIL), 1, allocator);
@@ -260,7 +260,7 @@ test "chunk write and getLine" {
 }
 
 test "chunk add and get constant" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     var chunk = Chunk.init(allocator);
 
     const idx1 = try chunk.addConstant(Value.initNumber(42.0), allocator);
@@ -273,7 +273,7 @@ test "chunk add and get constant" {
 }
 
 test "chunk indexing helpers" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     var chunk = Chunk.init(allocator);
 
     try testing.expectEqual(@as(usize, 0), chunk.indexOfNextInstruction());
@@ -285,7 +285,118 @@ test "chunk indexing helpers" {
 }
 
 test "chunk getConstant out of bounds" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     var chunk = Chunk.init(allocator);
     try testing.expectError(error.OutOfIndex, chunk.getConstant(0));
+}
+
+const MemoryManager = @import("memory.zig").MemoryManager;
+const Metadata = @import("gc.zig").Metadata;
+
+test "chunk addConstant deduplicates object constants but not numbers" {
+    const allocator = std.testing.allocator;
+    var chunk = Chunk.init(allocator);
+
+    var objA = Object{ .objectType = .String, .isMarked = false, .next = null };
+    var objB = Object{ .objectType = .String, .isMarked = false, .next = null };
+    const va = Value{ .Object = &objA };
+    const vb = Value{ .Object = &objB };
+
+    try testing.expectEqual(@as(u8, 0), try chunk.addConstant(va, allocator));
+    try testing.expectEqual(@as(u8, 0), try chunk.addConstant(va, allocator));
+    try testing.expectEqual(@as(u8, 1), try chunk.addConstant(vb, allocator));
+    try testing.expectEqual(@as(usize, 2), chunk.constants.values.items.len);
+
+    try testing.expectEqual(@as(u8, 2), try chunk.addConstant(Value.initNumber(1), allocator));
+    try testing.expectEqual(@as(u8, 3), try chunk.addConstant(Value.initNumber(1), allocator));
+}
+
+test "chunk writeConstantLong emits a 24-bit little endian index" {
+    const allocator = std.testing.allocator;
+    var chunk = Chunk.init(allocator);
+
+    try chunk.writeConstantLong(Value.initNumber(1), 5, allocator);
+    try chunk.writeConstantLong(Value.initNumber(2), 5, allocator);
+
+    try testing.expectEqualSlices(u8, &[_]u8{
+        OpCode.OP_CONSTANT_LONG.asByte(), 0, 0, 0,
+        OpCode.OP_CONSTANT_LONG.asByte(), 1, 0, 0,
+    }, chunk.code.items);
+    try testing.expectEqual(@as(usize, 2), chunk.constants.values.items.len);
+    try testing.expectEqual(@as(f64, 2), (try chunk.getConstant(1)).Number);
+    try testing.expectEqual(@as(usize, 5), try chunk.getLine(0));
+}
+
+test "chunk getLine out of range" {
+    const allocator = std.testing.allocator;
+    var chunk = Chunk.init(allocator);
+    try testing.expectError(error.OutOfIndex, chunk.getLine(0));
+    try chunk.write(OpCode.OP_NIL.asByte(), 1, allocator);
+    try testing.expectError(error.OutOfIndex, chunk.getLine(1));
+}
+
+test "value array get out of bounds" {
+    var array = ValueArray.init();
+    try testing.expectError(error.OutOfIndex, array.get(0));
+}
+
+test "opcode asByte matches the enum tag" {
+    try testing.expectEqual(@as(u8, 0), OpCode.OP_RETURN.asByte());
+    try testing.expectEqual(@as(u8, 1), OpCode.OP_CONSTANT.asByte());
+    try testing.expectEqual(@intFromEnum(OpCode.OP_CLOSE_UPVALUE), OpCode.OP_CLOSE_UPVALUE.asByte());
+}
+
+test "opcode disassemble returns the offset of the next instruction" {
+    const allocator = std.testing.allocator;
+    var chunk = Chunk.init(allocator);
+    _ = try chunk.addConstant(Value.initNumber(1), allocator);
+
+    const code = [_]u8{
+        OpCode.OP_NIL.asByte(),
+        OpCode.OP_CONSTANT.asByte(), 0,
+        OpCode.OP_GET_LOCAL.asByte(), 1,
+        OpCode.OP_JUMP.asByte(), 0, 1,
+        OpCode.OP_LOOP.asByte(), 0, 3,
+        OpCode.OP_CONSTANT_LONG.asByte(), 0, 0, 0,
+        OpCode.OP_RETURN.asByte(),
+    };
+    for (code) |byte| try chunk.write(byte, 1, allocator);
+
+    try testing.expectEqual(@as(usize, 1), try OpCode.OP_NIL.disassemble(&chunk, 0));
+    try testing.expectEqual(@as(usize, 3), try OpCode.OP_CONSTANT.disassemble(&chunk, 1));
+    try testing.expectEqual(@as(usize, 5), try OpCode.OP_GET_LOCAL.disassemble(&chunk, 3));
+    try testing.expectEqual(@as(usize, 8), try OpCode.OP_JUMP.disassemble(&chunk, 5));
+    try testing.expectEqual(@as(usize, 11), try OpCode.OP_LOOP.disassemble(&chunk, 8));
+    try testing.expectEqual(@as(usize, 15), try OpCode.OP_CONSTANT_LONG.disassemble(&chunk, 11));
+    try testing.expectEqual(@as(usize, 16), try OpCode.OP_RETURN.disassemble(&chunk, 15));
+
+    try chunk.disassemble("offsets");
+}
+
+test "opcode disassemble closure lists one pair per upvalue" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try MemoryManager.init(allocator, undefined, undefined);
+    const function = try Function.init(allocator, mm, &metadata, null);
+    function.upvalueCount = 2;
+
+    var chunk = Chunk.init(allocator);
+    const fnIdx = try chunk.addConstant(try Value.initFunction(function), allocator);
+    const numIdx = try chunk.addConstant(Value.initNumber(1), allocator);
+    const code = [_]u8{
+        OpCode.OP_CLOSURE.asByte(), fnIdx, 1, 1, 0, 0,
+        OpCode.OP_CLOSURE.asByte(), numIdx,
+    };
+    for (code) |byte| try chunk.write(byte, 1, allocator);
+
+    try testing.expectEqual(@as(usize, 6), try OpCode.OP_CLOSURE.disassemble(&chunk, 0));
+    try testing.expectError(error.TODO, OpCode.OP_CLOSURE.disassemble(&chunk, 6));
+}
+
+test "unknown opcode disassembles as a single byte" {
+    const allocator = std.testing.allocator;
+    var chunk = Chunk.init(allocator);
+    try chunk.write(200, 1, allocator);
+    const unknown: OpCode = @enumFromInt(200);
+    try testing.expectEqual(@as(usize, 1), try unknown.disassemble(&chunk, 0));
 }

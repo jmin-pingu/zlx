@@ -97,3 +97,38 @@ pub fn debug(comptime fmt: []const u8, args: anytype, mode: Mode) void {
     if (mode == .Debug) std.debug.print(fmt, args);
 }
 
+
+const testing = std.testing;
+
+test "errorAt returns the error it was given" {
+    const tok = Token.init(.IDENTIFIER, "foo", 3);
+    try testing.expectError(ParseError.InvalidAssignmentTarget, errorAt(&tok, ParseError.InvalidAssignmentTarget));
+    try testing.expectError(ParseError.TODO, errorAt(&tok, ParseError.TODO));
+}
+
+test "errorAt handles EOF and ERROR tokens" {
+    const eof = Token.init(.EOF, "EOF", 1);
+    try testing.expectError(ParseError.ExpectEOF, errorAt(&eof, ParseError.ExpectEOF));
+    const bad = Token.errorToken("unused", 2);
+    try testing.expectError(ParseError.ConsumedErrorToken, errorAt(&bad, ParseError.ConsumedErrorToken));
+}
+
+test "error sets nest into the umbrella Error set" {
+    const scan: ParseError = ScanError.UnterminatedString;
+    const oob: ParseError = error.OutOfIndex;
+    const oom: ParseError = error.OutOfMemory;
+    const parse: Error = ParseError.NoClosingSemicolon;
+    const enc: Error = EncodingError.InvalidState;
+    try testing.expectEqual(error.UnterminatedString, scan);
+    try testing.expectEqual(error.OutOfIndex, oob);
+    try testing.expectEqual(error.OutOfMemory, oom);
+    try testing.expectEqual(error.NoClosingSemicolon, parse);
+    try testing.expectEqual(error.InvalidState, enc);
+}
+
+test "debug only prints in Debug mode" {
+    debug("never printed {d}\n", .{1}, .Default);
+    debug("never printed {d}\n", .{1}, .DebugGC);
+    debug("never printed {d}\n", .{1}, .StressGC);
+    debug("printed in debug {d}\n", .{1}, .Debug);
+}

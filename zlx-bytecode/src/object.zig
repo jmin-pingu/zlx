@@ -287,3 +287,195 @@ pub const Upvalue = struct {
 };
 
 
+
+const testing = std.testing;
+
+fn testMemoryManager(allocator: std.mem.Allocator) !*MemoryManager {
+    return MemoryManager.init(allocator, undefined, undefined);
+}
+
+fn nativeStub(args: [*]Value) Value {
+    return args[0];
+}
+
+test "string init copies its value and links into the allocation list" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    var source = [_]u8{ 'a', 'b', 'c' };
+    const first = try String.init(allocator, mm, &source, &metadata);
+    defer first.deinit(allocator);
+    source[0] = 'z';
+    try testing.expectEqualStrings("abc", first.value);
+    try testing.expectEqual(ObjectType.String, first.object.objectType);
+    try testing.expectEqual(Object.toObject(first), metadata.allocations.?);
+    try testing.expect(first.object.next == null);
+
+    const second = try String.init(allocator, mm, "def", &metadata);
+    defer second.deinit(allocator);
+    try testing.expectEqual(Object.toObject(second), metadata.allocations.?);
+    try testing.expectEqual(Object.toObject(first), second.object.next.?);
+}
+
+test "string init returns the registered interned object" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    const first = try String.init(allocator, mm, "dup", &metadata);
+    defer first.deinit(allocator);
+    try metadata.setString("dup", Object.toObject(first));
+
+    const again = try String.init(allocator, mm, "dup", &metadata);
+    try testing.expectEqual(first, again);
+}
+
+test "string init without interning creates distinct objects" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    const a = try String.init(allocator, mm, "same", &metadata);
+    defer a.deinit(allocator);
+    const b = try String.init(allocator, mm, "same", &metadata);
+    defer b.deinit(allocator);
+    try testing.expect(a != b);
+    try testing.expectEqualStrings(a.value, b.value);
+}
+
+test "object conversions round trip" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    const string = try String.init(allocator, mm, "rt", &metadata);
+    defer string.deinit(allocator);
+
+    const object = Object.toObject(string);
+    try testing.expectEqual(string, object.toObjectType(String));
+    const value = Object.toValue(string);
+    try testing.expectEqual(object, value.Object);
+    try testing.expect(value.isObjectType(.String));
+}
+
+test "function init starts empty" {
+    const allocator = std.heap.page_allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const name = try String.init(allocator, mm, "f", &metadata);
+    const named = try Function.init(allocator, mm, &metadata, name);
+    try testing.expectEqual(ObjectType.Function, named.object.objectType);
+    try testing.expect(!named.object.isMarked);
+    try testing.expectEqual(@as(usize, 0), named.arity);
+    try testing.expectEqual(@as(u8, 0), named.upvalueCount);
+    try testing.expectEqual(@as(usize, 0), named.chunk.code.items.len);
+    try testing.expectEqual(@as(usize, 0), named.chunk.constants.values.items.len);
+    try testing.expectEqual(name, named.name.?);
+
+    const script = try Function.init(allocator, mm, &metadata, null);
+    try testing.expect(script.name == null);
+    try testing.expect(script.chunk != named.chunk);
+}
+
+test "closure init allocates one slot per function upvalue" {
+    const allocator = std.heap.page_allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const function = try Function.init(allocator, mm, &metadata, null);
+    function.upvalueCount = 3;
+    const closure = try Closure.init(allocator, mm, &metadata, function);
+    try testing.expectEqual(ObjectType.Closure, closure.object.objectType);
+    try testing.expectEqual(function, closure.function);
+    try testing.expectEqual(@as(usize, 3), closure.upvalues.len);
+    try testing.expectEqual(@as(usize, 3), closure.upvalueCount);
+
+    const plain = try Function.init(allocator, mm, &metadata, null);
+    const noUpvalues = try Closure.init(allocator, mm, &metadata, plain);
+    try testing.expectEqual(@as(usize, 0), noUpvalues.upvalues.len);
+}
+
+test "native function init stores arity and callback" {
+    const allocator = std.heap.page_allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const native = try NativeFunction.init(allocator, mm, &metadata, nativeStub, 1);
+    try testing.expectEqual(ObjectType.NativeFunction, native.object.objectType);
+    try testing.expectEqual(@as(usize, 1), native.arity);
+
+    var args = [_]Value{Value.initNumber(7)};
+    try testing.expectEqual(@as(f64, 7), native.nativeFn(&args).Number);
+}
+
+test "upvalue init points at the slot and starts closed over nil" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    var slot = Value.initNumber(3);
+    const upvalue = try Upvalue.init(allocator, mm, &metadata, &slot);
+    defer upvalue.deinit(allocator);
+
+    try testing.expectEqual(ObjectType.Upvalue, upvalue.object.objectType);
+    try testing.expectEqual(@as(*const Value, &slot), upvalue.location);
+    try testing.expectEqual(@as(f64, 3), upvalue.location.*.Number);
+    try testing.expect(upvalue.closed.isValueTag(.Nil));
+    try testing.expect(upvalue.next == null);
+
+    slot = Value.initNumber(4);
+    try testing.expectEqual(@as(f64, 4), upvalue.location.*.Number);
+}
+
+test "object print dispatches on the object type" {
+    const allocator = std.heap.page_allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const string = try String.init(allocator, mm, "p", &metadata);
+    const named = try Function.init(allocator, mm, &metadata, string);
+    const script = try Function.init(allocator, mm, &metadata, null);
+    const native = try NativeFunction.init(allocator, mm, &metadata, nativeStub, 1);
+    const closure = try Closure.init(allocator, mm, &metadata, named);
+    var slot = Value.initNil();
+    const upvalue = try Upvalue.init(allocator, mm, &metadata, &slot);
+
+    Object.toObject(string).print();
+    Object.toObject(named).print();
+    Object.toObject(script).print();
+    Object.toObject(native).print();
+    Object.toObject(closure).print();
+    Object.toObject(upvalue).print();
+}
+
+test "freeObjects releases every string in the allocation chain" {
+    const allocator = testing.allocator;
+    var metadata = Metadata.init(allocator);
+    defer metadata.interned.deinit();
+    defer metadata.identifiers.deinit();
+    const mm = try testMemoryManager(allocator);
+    defer allocator.destroy(mm);
+
+    _ = try String.init(allocator, mm, "one", &metadata);
+    _ = try String.init(allocator, mm, "two", &metadata);
+    _ = try String.init(allocator, mm, "three", &metadata);
+
+    metadata.allocations.?.freeObjects(allocator);
+}

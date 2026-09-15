@@ -172,15 +172,6 @@ pub const Value = union(ValueTag) {
     }
 };
 
-test "values initialization" {
-    const Compiler = @import("compiler.zig").Compiler;
-    const allocator = std.heap.page_allocator;
-    const compiler = try allocator.create(Compiler);
-    const metadata = try allocator.create(Metadata);
-    metadata.* = Metadata.init(allocator);
-    compiler.* = try Compiler.init(metadata, null, .Script, null, allocator);
-    defer metadata.trace(null);
-}
 
 test "value isFalsey" {
     try std.testing.expect(Value.initNil().isFalsey());
@@ -215,4 +206,139 @@ test "value isValueTag" {
     try std.testing.expect(Value.initBool(true).isValueTag(.Bool));
     try std.testing.expect(Value.initNil().isValueTag(.Nil));
     try std.testing.expect(!Value.initNumber(1.0).isValueTag(.Bool));
+}
+
+const testing = std.testing;
+
+fn testMemoryManager(allocator: std.mem.Allocator) !*MemoryManager {
+    return MemoryManager.init(allocator, undefined, undefined);
+}
+
+fn identityNative(args: [*]Value) Value {
+    return args[0];
+}
+
+test "values initialization" {
+    const Compiler = @import("compiler.zig").Compiler;
+    const allocator = std.testing.allocator;
+    const compiler = try allocator.create(Compiler);
+    const metadata = try allocator.create(Metadata);
+    metadata.* = Metadata.init(allocator);
+    const memoryManager = try MemoryManager.init(allocator, undefined, compiler);
+    compiler.* = try Compiler.init(metadata, null, .Script, null, memoryManager, allocator);
+    defer metadata.trace(null);
+
+    try testing.expect(compiler.function.name == null);
+    try testing.expectEqual(@as(usize, 0), compiler.function.arity);
+    try testing.expectEqual(@as(u8, 1), compiler.localCount);
+    try testing.expectEqual(@as(u8, 0), compiler.scopeDepth);
+}
+
+test "value initString interns equal strings" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const a = try Value.initString(allocator, mm, "hello", &metadata);
+    const b = try Value.initString(allocator, mm, "hello", &metadata);
+    const c = try Value.initString(allocator, mm, "world", &metadata);
+
+    try testing.expect(a.isObjectType(.String));
+    try testing.expectEqual(a.Object, b.Object);
+    try testing.expect(a.Object != c.Object);
+    try testing.expectEqualStrings("hello", a.Object.toObjectType(String).value);
+    try testing.expectEqualStrings("world", c.Object.toObjectType(String).value);
+    try testing.expectEqual(@as(?*Object, a.Object), metadata.retrieveString("hello"));
+}
+
+test "value isEqual compares strings by interned identity" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const a = try Value.initString(allocator, mm, "hello", &metadata);
+    const b = try Value.initString(allocator, mm, "hello", &metadata);
+    const c = try Value.initString(allocator, mm, "world", &metadata);
+    const n = Value.initNumber(1);
+
+    try testing.expect(a.isEqual(&b));
+    try testing.expect(!a.isEqual(&c));
+    try testing.expect(!a.isEqual(&n));
+    try testing.expect(!n.isEqual(&a));
+}
+
+test "value isEqual distinguishes object kinds and identities" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const f1 = try Function.init(allocator, mm, &metadata, null);
+    const f2 = try Function.init(allocator, mm, &metadata, null);
+    const c1 = try Closure.init(allocator, mm, &metadata, f1);
+
+    const vf1 = try Value.initFunction(f1);
+    const vf1Again = try Value.initFunction(f1);
+    const vf2 = try Value.initFunction(f2);
+    const vc1 = try Value.initClosure(c1);
+
+    try testing.expect(vf1.isEqual(&vf1Again));
+    try testing.expect(!vf1.isEqual(&vf2));
+    try testing.expect(!vf1.isEqual(&vc1));
+    try testing.expect(vc1.isEqual(&vc1));
+
+    try testing.expect(vf1.isObjectType(.Function));
+    try testing.expect(!vf1.isObjectType(.Closure));
+    try testing.expect(vc1.isObjectType(.Closure));
+    try testing.expectEqual(f1, vf1.Object.toObjectType(Function));
+    try testing.expectEqual(c1, vc1.Object.toObjectType(Closure));
+}
+
+test "value isObject and isObjectType on primitives" {
+    try testing.expect(!Value.initNumber(1).isObject());
+    try testing.expect(!Value.initBool(true).isObject());
+    try testing.expect(!Value.initNil().isObject());
+    try testing.expect(!Value.initNumber(1).isObjectType(.String));
+    try testing.expect(!Value.initNil().isObjectType(.Function));
+    try testing.expect(Value.initBool(false).isValueTag(.Bool));
+    try testing.expect(!Value.initNil().isValueTag(.Object));
+}
+
+test "value initNativeFunction wraps arity and callback" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const value = try Value.initNativeFunction(allocator, mm, &metadata, identityNative, 1);
+    try testing.expect(value.isObject());
+    try testing.expect(value.isObjectType(.NativeFunction));
+
+    const native = value.Object.toObjectType(NativeFunction);
+    try testing.expectEqual(@as(usize, 1), native.arity);
+    var args = [_]Value{Value.initNumber(7)};
+    try testing.expectEqual(@as(f64, 7), native.nativeFn(&args).Number);
+}
+
+test "value print covers every variant" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try testMemoryManager(allocator);
+
+    const string = try Value.initString(allocator, mm, "text", &metadata);
+    const named = try Function.init(allocator, mm, &metadata, string.Object.toObjectType(String));
+    const script = try Function.init(allocator, mm, &metadata, null);
+    const namedClosure = try Closure.init(allocator, mm, &metadata, named);
+    const scriptClosure = try Closure.init(allocator, mm, &metadata, script);
+    var slot = Value.initNumber(2);
+    const upvalue = try Upvalue.init(allocator, mm, &metadata, &slot);
+
+    Value.initNumber(1.5).print();
+    Value.initBool(true).print();
+    Value.initNil().print();
+    string.print();
+    (try Value.initFunction(named)).print();
+    (try Value.initFunction(script)).print();
+    (try Value.initNativeFunction(allocator, mm, &metadata, identityNative, 1)).print();
+    (try Value.initClosure(namedClosure)).print();
+    (try Value.initClosure(scriptClosure)).print();
+    Object.toValue(upvalue).print();
 }

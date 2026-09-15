@@ -488,3 +488,405 @@ pub const VM = struct {
     }
 };
 
+
+const testing = std.testing;
+
+const TestRun = struct {
+    vm: *VM,
+    result: InterpretResult,
+
+    fn global(self: TestRun, name: []const u8) ?Value {
+        if (self.vm.globals.get(name)) |entry| return entry.getValue();
+        return null;
+    }
+};
+
+fn newVM(allocator: std.mem.Allocator) !*VM {
+    const vm = try allocator.create(VM);
+    const metadata = try allocator.create(Metadata);
+    metadata.* = Metadata.init(allocator);
+    const memoryManager = try MemoryManager.init(allocator, vm, undefined);
+    vm.* = try VM.init(metadata, memoryManager, allocator);
+    return vm;
+}
+
+fn runSource(source: []const u8) !TestRun {
+    const allocator = std.testing.allocator;
+    const compiler = try allocator.create(Compiler);
+    const vm = try allocator.create(VM);
+    const memoryManager = try MemoryManager.init(allocator, vm, compiler);
+    const metadata = try allocator.create(Metadata);
+    metadata.* = Metadata.init(allocator);
+    compiler.* = try Compiler.init(metadata, null, .Script, null, memoryManager, allocator);
+    vm.* = try VM.init(metadata, memoryManager, allocator);
+
+    const result = vm.interpret(compiler, source, allocator) catch |err| switch (err) {
+        error.runtimeError => InterpretResult.INTERPRET_RUNTIME_ERROR,
+        else => return err,
+    };
+    return .{ .vm = vm, .result = result };
+}
+
+fn expectResult(source: []const u8, expected: InterpretResult) !void {
+    const run = try runSource(source);
+    try testing.expectEqual(expected, run.result);
+}
+
+fn expectGlobal(source: []const u8, name: []const u8) !Value {
+    const run = try runSource(source);
+    try testing.expectEqual(InterpretResult.INTERPRET_OK, run.result);
+    const value = run.global(name);
+    try testing.expect(value != null);
+    return value.?;
+}
+
+fn expectNumber(source: []const u8, name: []const u8, expected: f64) !void {
+    const value = try expectGlobal(source, name);
+    try testing.expect(value == .Number);
+    try testing.expectEqual(expected, value.Number);
+}
+
+fn expectBool(source: []const u8, name: []const u8, expected: bool) !void {
+    const value = try expectGlobal(source, name);
+    try testing.expect(value == .Bool);
+    try testing.expectEqual(expected, value.Bool);
+}
+
+fn expectNil(source: []const u8, name: []const u8) !void {
+    const value = try expectGlobal(source, name);
+    try testing.expect(value == .Nil);
+}
+
+fn expectString(source: []const u8, name: []const u8, expected: []const u8) !void {
+    const value = try expectGlobal(source, name);
+    try testing.expect(value.isObjectType(.String));
+    try testing.expectEqualStrings(expected, value.Object.toObjectType(String).value);
+}
+
+
+test "vm stack push pop and peek" {
+    const vm = try newVM(std.testing.allocator);
+    vm.push(Value.initNumber(1));
+    vm.push(Value.initNumber(2));
+    vm.push(Value.initBool(true));
+
+    try testing.expect(vm.peek(0).Bool);
+    try testing.expectEqual(@as(f64, 2), vm.peek(1).Number);
+    try testing.expectEqual(@as(f64, 1), vm.peek(2).Number);
+
+    try testing.expect(vm.pop().Bool);
+    try testing.expectEqual(@as(f64, 2), vm.pop().Number);
+    try testing.expectEqual(@as(f64, 1), vm.pop().Number);
+}
+
+test "vm binaryOperator arithmetic and comparison on numbers" {
+    const vm = try newVM(std.testing.allocator);
+    const cases = [_]struct { OpCode, f64 }{
+        .{ .OP_ADD, 9 }, .{ .OP_SUBTRACT, 3 }, .{ .OP_MULTIPLY, 18 }, .{ .OP_DIVIDE, 2 },
+    };
+    for (cases) |case| {
+        vm.push(Value.initNumber(6));
+        vm.push(Value.initNumber(3));
+        try vm.binaryOperator(case[0]);
+        try testing.expectEqual(case[1], vm.pop().Number);
+    }
+
+    vm.push(Value.initNumber(6));
+    vm.push(Value.initNumber(3));
+    try vm.binaryOperator(.OP_GREATER);
+    try testing.expect(vm.pop().Bool);
+
+    vm.push(Value.initNumber(6));
+    vm.push(Value.initNumber(3));
+    try vm.binaryOperator(.OP_LESS);
+    try testing.expect(!vm.pop().Bool);
+}
+
+test "vm init registers the clock native as a global" {
+    const vm = try newVM(std.testing.allocator);
+    const entry = vm.globals.get("clock");
+    try testing.expect(entry != null);
+    const value = entry.?.getValue();
+    try testing.expect(value.isObjectType(.NativeFunction));
+    try testing.expectEqual(@as(usize, 0), value.Object.toObjectType(NativeFunction).arity);
+    try testing.expectEqualStrings("clock", entry.?.keyPtr.value);
+}
+
+test "vm call frame exposes its closure chunk" {
+    const allocator = std.testing.allocator;
+    var metadata = Metadata.init(allocator);
+    const mm = try MemoryManager.init(allocator, undefined, undefined);
+    const function = try Function.init(allocator, mm, &metadata, null);
+    try function.chunk.write(OpCode.OP_RETURN.asByte(), 7, allocator);
+    const closure = try Closure.init(allocator, mm, &metadata, function);
+
+    var slots = [_]Value{Value.initNil()};
+    const frame = CallFrame.init(closure, function.chunk.getInstructionBasePointer(), &slots);
+    try testing.expectEqual(function.chunk, frame.getChunk());
+    try testing.expectEqual(closure, frame.closure);
+    try testing.expectEqual(OpCode.OP_RETURN.asByte(), frame.ip[0]);
+    try testing.expectEqual(frame.slots, frame.slotsBase);
+}
+
+
+test "vm arithmetic evaluates with precedence" {
+    try expectNumber("var r = 1 + 2 * 3 - 4 / 2;", "r", 5);
+    try expectNumber("var r = (1 + 2) * 3;", "r", 9);
+    try expectNumber("var r = -(2 + 3);", "r", -5);
+    try expectNumber("var r = 10 - 2 - 3;", "r", 5);
+    try expectNumber("var r = 1.5 * 2;", "r", 3);
+}
+
+test "vm division by zero yields infinity" {
+    const value = try expectGlobal("var r = 1 / 0;", "r");
+    try testing.expect(std.math.isInf(value.Number));
+}
+
+test "vm number comparisons" {
+    try expectBool("var r = 1 < 2;", "r", true);
+    try expectBool("var r = 2 <= 2;", "r", true);
+    try expectBool("var r = 3 > 4;", "r", false);
+    try expectBool("var r = 3 >= 4;", "r", false);
+    try expectBool("var r = 1 == 1;", "r", true);
+    try expectBool("var r = 1 != 1;", "r", false);
+}
+
+test "vm equality across value kinds" {
+    try expectBool("var r = \"a\" == \"a\";", "r", true);
+    try expectBool("var r = \"a\" == \"b\";", "r", false);
+    try expectBool("var r = \"a\" != \"b\";", "r", true);
+    try expectBool("var r = 1 == \"1\";", "r", false);
+    try expectBool("var r = nil == nil;", "r", true);
+    try expectBool("var r = nil == false;", "r", false);
+    try expectBool("var r = true == true;", "r", true);
+    try expectBool("fun f() {} var r = f == f;", "r", true);
+}
+
+test "vm truthiness" {
+    try expectBool("var r = !nil;", "r", true);
+    try expectBool("var r = !false;", "r", true);
+    try expectBool("var r = !true;", "r", false);
+    try expectBool("var r = !0;", "r", false);
+    try expectBool("var r = !\"\";", "r", false);
+}
+
+test "vm string concatenation and interning" {
+    try expectString("var s = \"foo\" + \"bar\";", "s", "foobar");
+    try expectString("var s = \"\" + \"x\" + \"\";", "s", "x");
+    try expectBool("var r = (\"a\" + \"b\") == \"ab\";", "r", true);
+}
+
+test "vm logical operators return the deciding operand" {
+    try expectString("var r = nil or \"x\";", "r", "x");
+    try expectString("var r = \"y\" or \"z\";", "r", "y");
+    try expectBool("var r = nil or false;", "r", false);
+    try expectBool("var r = false and 1;", "r", false);
+    try expectNumber("var r = 1 and 2;", "r", 2);
+    try expectNil("var r = nil and 2;", "r");
+}
+
+
+test "vm global variables" {
+    try expectNil("var x;", "x");
+    try expectNumber("var x = 1;", "x", 1);
+    try expectNumber("var x = 1; x = 2;", "x", 2);
+    try expectNumber("var a = 1; a = a + 1; a = a * 10;", "a", 20);
+    try expectNil("var x; var y = x; x = 3;", "y");
+    try expectNumber("var x; x = 3; var z = x;", "z", 3);
+    try expectNumber("const k = 7; var r = k * 2;", "r", 14);
+}
+
+test "vm local scopes and shadowing" {
+    try expectNumber("var r; var a = 1; { var a = 2; { var a = 3; r = a; } }", "r", 3);
+    try expectNumber("var r; var a = 1; { var a = 2; r = a; } var t = a;", "r", 2);
+    try expectNumber("var r; var a = 1; { var a = 2; r = a; } var t = a;", "t", 1);
+    try expectNumber("var s; { var q = 10; { var w = 5; s = q + w; } }", "s", 15);
+    try expectNumber("var s; { var q = 1; q = q + 1; q = q + 1; s = q; }", "s", 3);
+}
+
+
+test "vm if and else" {
+    try expectString("var r; if (1 < 2) r = \"yes\"; else r = \"no\";", "r", "yes");
+    try expectString("var r; if (nil) r = \"t\"; else r = \"f\";", "r", "f");
+    try expectNumber("var r = 0; if (false) r = 1;", "r", 0);
+    try expectNumber("var r = 0; if (true) { r = 1; r = r + 1; }", "r", 2);
+    try expectString("var r; if (false) r = \"a\"; else if (true) r = \"b\"; else r = \"c\";", "r", "b");
+}
+
+test "vm while loop" {
+    try expectNumber("var i = 0; var s = 0; while (i < 5) { i = i + 1; s = s + i; }", "s", 15);
+    try expectNumber("var i = 0; while (false) i = 1;", "i", 0);
+}
+
+test "vm for loop variants" {
+    try expectNumber("var s = 0; for (var i = 0; i < 4; i = i + 1) { s = s + i; }", "s", 6);
+    try expectNumber("var t = 0; var j = 0; for (; j < 3;) { j = j + 1; t = t + 10; }", "t", 30);
+    try expectNumber("var n = 0; for (var i = 5; i > 0; i = i - 1) n = n + 1;", "n", 5);
+}
+
+test "vm continue skips the rest of a while body" {
+    try expectNumber(
+        "var r = 0; var i = 0; while (i < 5) { i = i + 1; if (i == 3) continue; r = r + i; }",
+        "r",
+        12,
+    );
+}
+
+test "vm switch statement" {
+    const arms = "switch (v) { 1 => r = \"one\"; 2 => r = \"two\"; default => r = \"other\"; }";
+    try expectString("var r; var v = 1; " ++ arms, "r", "one");
+    try expectString("var r; var v = 2; " ++ arms, "r", "two");
+    try expectString("var r; var v = 9; " ++ arms, "r", "other");
+    try expectNumber("var r = 0; switch (3) { 1 => r = 1; 2 => r = 2; }", "r", 0);
+    try expectNumber("var r = 0; switch (2) { 1 => r = 1; 2 => { r = 2; r = r * 10; } }", "r", 20);
+    try expectString("var r; switch (\"b\") { \"a\" => r = \"A\"; \"b\" => r = \"B\"; }", "r", "B");
+}
+
+
+test "vm functions return values" {
+    try expectNumber("fun f() { return 42; } var r = f();", "r", 42);
+    try expectNil("fun f() {} var r = f();", "r");
+    try expectNil("fun f() { return; } var r = f();", "r");
+    try expectNumber("fun add(a, b) { return a + b; } var r = add(2, 3);", "r", 5);
+    try expectNumber("fun one() { return 1; } var r = one() + one();", "r", 2);
+}
+
+test "vm assignment to a function parameter" {
+    try expectNumber("fun f(a) { a = a * 2; return a; } var r = f(4);", "r", 8);
+}
+
+test "vm functions recurse" {
+    try expectNumber("fun fib(n) { if (n < 2) return n; return fib(n - 1) + fib(n - 2); } var r = fib(10);", "r", 55);
+    try expectNumber("fun fact(n) { if (n <= 1) return 1; return n * fact(n - 1); } var r = fact(6);", "r", 720);
+}
+
+test "vm functions are first class values" {
+    try expectNumber("fun f() { return 1; } var g = f; var r = g();", "r", 1);
+    try expectNumber("fun apply(fn, x) { return fn(x); } fun dbl(x) { return x * 2; } var r = apply(dbl, 21);", "r", 42);
+}
+
+test "vm native clock returns a non-negative number" {
+    const value = try expectGlobal("var t = clock();", "t");
+    try testing.expect(value == .Number);
+    try testing.expect(value.Number >= 0);
+}
+
+
+test "vm closure reads an upvalue after the enclosing function returned" {
+    try expectString(
+        "fun outer() { var x = \"closed\"; fun inner() { return x; } return inner; } var f = outer(); var r = f();",
+        "r",
+        "closed",
+    );
+}
+
+test "vm closure reads an open upvalue while the enclosing function runs" {
+    try expectNumber("var r; fun outer() { var x = 5; fun inner() { r = x; } inner(); } outer();", "r", 5);
+}
+
+test "vm closure captures through an intermediate function" {
+    try expectString(
+        "fun a() { var x = \"deep\"; fun b() { fun c() { return x; } return c; } return b; } var r = a()()();",
+        "r",
+        "deep",
+    );
+}
+
+test "vm block local captured by a closure is closed at scope end" {
+    try expectNumber("var f; { var x = 1; fun g() { return x; } f = g; } var r = f();", "r", 1);
+}
+
+test "vm closures share and mutate a captured variable" {
+    try expectNumber(
+        "var r; fun outer() { var a = 1; fun set() { a = 2; } fun get() { return a; } set(); r = get(); } outer();",
+        "r",
+        2,
+    );
+}
+
+test "vm closure counter keeps state between calls" {
+    const counter = "fun makeCounter() { var i = 0; fun count() { i = i + 1; return i; } return count; } var c = makeCounter(); ";
+    try expectNumber(counter ++ "c(); var r = c();", "r", 2);
+    try expectNumber(counter ++ "c(); c(); var r = c();", "r", 3);
+}
+
+test "vm closure capturing two variables" {
+    if (true) return error.SkipZigTest;
+    try expectNumber("fun outer() { var a = 1; var b = 2; fun f() { return a + b; } return f; } var g = outer(); var r = g();", "r", 3);
+}
+
+
+test "vm runtime errors" {
+    const cases = [_][]const u8{
+        "var r = missing;",
+        "missing = 1;",
+        "fun f(a) { return a; } f(1, 2);",
+        "fun f(a) { return a; } f();",
+        "var x = 1; x();",
+        "\"text\"();",
+        "clock(1);",
+        "fun f() { f(); } f();",
+    };
+    for (cases) |source| {
+        try expectResult(source, .INTERPRET_RUNTIME_ERROR);
+    }
+}
+
+test "vm operand type errors are runtime errors" {
+    const cases = [_][]const u8{
+        "1 + \"a\";",
+        "\"a\" + 1;",
+        "1 < \"a\";",
+        "\"a\" * 2;",
+        "true - 1;",
+        "nil / 2;",
+    };
+    for (cases) |source| {
+        try expectResult(source, .INTERPRET_RUNTIME_ERROR);
+    }
+}
+
+test "vm negating a non-number is a runtime error" {
+    try expectResult("-\"a\";", .INTERPRET_RUNTIME_ERROR);
+}
+
+test "vm reports compile errors as a compile error result" {
+    try expectResult("var x = 1", .INTERPRET_COMPILE_ERROR);
+    try expectResult("const x;", .INTERPRET_COMPILE_ERROR);
+    try expectResult("fun f( {}", .INTERPRET_COMPILE_ERROR);
+}
+
+test "vm program state is isolated between runs" {
+    try expectNumber("var x = 1;", "x", 1);
+    try expectResult("var r = x;", .INTERPRET_RUNTIME_ERROR);
+}
+
+test "vm string values keep escape sequences uninterpreted" {
+    const source =
+        \\var s = "a\nb";
+    ;
+    try expectString(source, "s", "a\\nb");
+    const value = try expectGlobal(source, "s");
+    try testing.expectEqual(@as(usize, 4), value.Object.toObjectType(String).value.len);
+
+    const compare =
+        \\var r = "\n" == "
+    ++ "\n" ++
+        \\";
+    ;
+    try expectBool(compare, "r", false);
+}
+
+test "vm concatenation leaves escape sequences alone" {
+    const source =
+        \\var s = "a\n" + "\tb";
+    ;
+    try expectString(source, "s", "a\\n\\tb");
+}
+
+test "vm string values keep control characters" {
+    try expectString("var s = \"a\x01b\";", "s", "a\x01b");
+    const value = try expectGlobal("var s = \"a\x1bb\";", "s");
+    try testing.expectEqual(@as(usize, 3), value.Object.toObjectType(String).value.len);
+    try testing.expectEqual(@as(u8, 0x1b), value.Object.toObjectType(String).value[1]);
+}

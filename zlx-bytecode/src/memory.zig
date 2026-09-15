@@ -111,3 +111,42 @@ pub const MemoryManager = struct {
         try self.vm.grayStack.append(allocator, obj);
     }
 };
+
+const testing = std.testing;
+
+test "memory manager stores vm and compiler references" {
+    const allocator = testing.allocator;
+    const vm = try allocator.create(VM);
+    defer allocator.destroy(vm);
+    const compiler = try allocator.create(Compiler);
+    defer allocator.destroy(compiler);
+
+    const mm = try MemoryManager.init(allocator, vm, compiler);
+    defer allocator.destroy(mm);
+    try testing.expectEqual(vm, mm.vm);
+    try testing.expectEqual(compiler, mm.compiler);
+}
+
+test "allocateObject returns a typed allocation for every object kind" {
+    const allocator = testing.allocator;
+    const mm = try MemoryManager.init(allocator, undefined, undefined);
+    defer allocator.destroy(mm);
+
+    inline for (.{ String, Function, NativeFunction, Closure, Upvalue }) |T| {
+        const obj = try mm.allocateObject(T, allocator);
+        defer allocator.destroy(obj);
+        try testing.expect(@TypeOf(obj) == *T);
+    }
+}
+
+test "allocateObject hands out distinct allocations" {
+    const allocator = testing.allocator;
+    const mm = try MemoryManager.init(allocator, undefined, undefined);
+    defer allocator.destroy(mm);
+
+    const a = try mm.allocateObject(Upvalue, allocator);
+    defer allocator.destroy(a);
+    const b = try mm.allocateObject(Upvalue, allocator);
+    defer allocator.destroy(b);
+    try testing.expect(a != b);
+}
